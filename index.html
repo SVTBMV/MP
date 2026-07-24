@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Měsíční přehled výroby</title>
+    <style>
+        :root {
+            --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f1f5f9; --success: #22c55e; --error: #ef4444; --warning: #eab308; --border: #334155;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        .status-msg { text-align: center; color: var(--accent); font-style: italic; margin-top: 20px; }
+        .msg { padding: 12px; border-radius: 6px; font-size: 0.9rem; font-weight: 500; line-height: 1.4; display: none; }
+        .msg.red { display: block; background: rgba(239, 68, 68, 0.15); border: 1px solid var(--error); color: #f87171; }
+
+        .login-box { max-width: 380px; margin: 60px auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 30px; text-align: center; }
+        .login-box h3 { margin-top: 0; color: var(--accent); }
+        .login-box input { width: 100%; background: #0f172a; border: 1px solid var(--border); padding: 14px; border-radius: 8px; color: white; margin-bottom: 15px; outline: none; box-sizing: border-box; font-size: 1rem; text-align: center; letter-spacing: 2px; }
+        .login-box input:focus { border-color: var(--accent); }
+        .login-box button { width: 100%; background: var(--accent); color: #000; font-weight: bold; border: none; padding: 14px; border-radius: 8px; cursor: pointer; font-size: 1rem; }
+        .login-box button:hover { opacity: 0.9; }
+        .login-error { color: var(--error); font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px; min-height: 1em; }
+
+        .mesice-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+        .mesic-btn { background: var(--card); border: 2px solid var(--border); border-radius: 10px; padding: 12px 18px; color: white; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
+        .mesic-btn:hover { border-color: var(--accent); background: #2d3a6d; }
+        .mesic-btn.active { border-color: var(--accent); background: var(--accent); color: #000; }
+
+        .prehled-karta { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+        .prehled-nadpis { font-size: 1.3rem; font-weight: 800; color: #fff; margin-bottom: 4px; }
+        .prehled-podnadpis { font-size: 0.85rem; color: #64748b; margin-bottom: 18px; }
+
+        .souhrn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+        .souhrn-karta { background: rgba(15, 23, 42, 0.5); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+        .souhrn-karta .val { display: block; font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+        .souhrn-karta .lbl { display: block; font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.4px; }
+
+        .sekce-nadpis { font-size: 1rem; font-weight: 800; color: var(--accent); margin: 26px 0 12px; }
+
+        table.prehled-table { width: 100%; border-collapse: collapse; }
+        table.prehled-table th, table.prehled-table td { padding: 10px 12px; text-align: center; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+        table.prehled-table th { background: #1e294b; color: var(--accent); text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; }
+        table.prehled-table tr:last-child td { border-bottom: none; }
+        table.prehled-table td.jmeno-bunka { text-align: left; font-weight: 600; color: #fff; }
+        table.prehled-table td.prazdne { color: #475569; }
+        table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 style="text-align: center; margin-bottom: 10px; letter-spacing: 2px;">MĚSÍČNÍ PŘEHLED VÝROBY</h1>
+    <p style="text-align: center; color: #64748b; margin-top: 0; margin-bottom: 30px;">Souhrn výkonů, neshod a docházky pro obsluhy TB</p>
+
+    <div id="app">
+        <div class="login-box">
+            <h3>🔒 Zadejte heslo</h3>
+            <input type="password" id="heslo-input" placeholder="Heslo" inputmode="numeric"
+                onkeydown="if(event.key==='Enter') overitHeslo()">
+            <div class="login-error" id="heslo-error"></div>
+            <button onclick="overitHeslo()">Vstoupit</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const HESLO = '1592648';
+
+    const DATA_DOC_ID = '1VmwnMcHmvrVSWhj5UimmSG-ZsKkdPcQEMKl22Khqt2E';
+    const REZIE_DOC_ID = '1fa0RXA2EEDvlGD-iTCEuXU5LKiMbWJM4EVJOTltWwa4';
+    const RUCNI_DOC_ID = '11ncVFAnCGzBGCmzj48Aq8w_rPq8EVprHpBT3M5NO3d8';
+
+    const NAZVY_MESICU = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
+
+    function gvizUrl(docId, sheetName) {
+        return `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    }
+
+    // --- CSV pomocné funkce ---
+    function parseCSV(text) {
+        text = text.replace(/^\uFEFF/, '');
+        const rows = [];
+        let row = [];
+        let field = '';
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (inQuotes) {
+                if (c === '"') {
+                    if (text[i + 1] === '"') { field += '"'; i++; }
+                    else { inQuotes = false; }
+                } else { field += c; }
+            } else {
+                if (c === '"') { inQuotes = true; }
+                else if (c === ',') { row.push(field); field = ''; }
+                else if (c === '\r') { /* ignore */ }
+                else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+                else { field += c; }
+            }
+        }
+        if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+        return rows.filter(r => r.length > 1 || (r.length === 1 && r[0].trim() !== ''));
+    }
+
+    function ocistitBunku(v) {
+        if (v === undefined || v === null) return '';
+        return v.replace(/\u00A0/g, ' ').trim().replace(/^'/, '').trim();
+    }
+
+    function parseCislo(v) {
+        const cisty = ocistitBunku(v).replace(/\s/g, '').replace(',', '.').replace(/[^0-9.\-]/g, '');
+        const n = parseFloat(cisty);
+        return isNaN(n) ? 0 : n;
+    }
+
+    function normalizovatText(s) {
+        return String(s || '')
+            .toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .replace(/\s+/g, ' ');
+    }
+
+    function formatCislo(n, desetin) {
+        return n.toLocaleString('cs-CZ', { minimumFractionDigits: desetin, maximumFractionDigits: desetin });
+    }
+
+    function formatKc(n) {
+        return `${Math.round(n).toLocaleString('cs-CZ')} Kč`;
+    }
+
+    // --- Detekce sloupců podle přesného názvu hlavičky ---
+    function najitPresnySloupec(headerRow, presneJmeno) {
+        const hlavicky = headerRow.map(h => normalizovatText(ocistitBunku(h)));
+        return hlavicky.findIndex(h => h === presneJmeno);
+    }
+
+    function detekovatSloupceData(headerRow) {
+        return {
+            idxCas: najitPresnySloupec(headerRow, 'cas planovany skutecny'),
+            idxMnozstvi: najitPresnySloupec(headerRow, 'mnozstvi'),
+            idxJmeno: najitPresnySloupec(headerRow, 'cele jmeno'),
+            idxOsCislo: najitPresnySloupec(headerRow, 'praci provedl'),
+            idxVyrobniPrikaz: najitPresnySloupec(headerRow, 'vyrobni prikaz')
+        };
+    }
+
+    function detekovatSloupceRezie(headerRow) {
+        return {
+            idxCas: najitPresnySloupec(headerRow, 'cas celkem vykazany'),
+            idxJmeno: najitPresnySloupec(headerRow, 'cele jmeno'),
+            idxOsCislo: najitPresnySloupec(headerRow, 'praci provedl')
+        };
+    }
+
+    // --- Přihlášení ---
+    function overitHeslo() {
+        const input = document.getElementById('heslo-input');
+        const errorEl = document.getElementById('heslo-error');
+        const zadane = ocistitBunku(input.value);
+
+        if (zadane === HESLO) {
+            zahajitNacitaniMesicu();
+        } else {
+            errorEl.textContent = 'Nesprávné heslo. Zkuste to znovu.';
+            input.value = '';
+            input.focus();
+        }
+    }
+
+    // --- Zjištění dostupných měsíců ---
+    function generovatKandidatniMesice() {
+        const vysledek = [];
+        const start = new Date(2026, 0, 1); // leden 2026
+        const ted = new Date();
+        const konec = new Date(ted.getFullYear(), ted.getMonth() + 3, 1);
+        let d = new Date(start);
+        while (d <= konec) {
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            vysledek.push(`${mm}-${d.getFullYear()}`);
+            d.setMonth(d.getMonth() + 1);
+        }
+        return vysledek.reverse(); // od nejnovějšího
+    }
+
+    function nazevMesiceCZ(klic) {
+        const [mm, rrrr] = klic.split('-');
+        return `${NAZVY_MESICU[parseInt(mm, 10) - 1]} ${rrrr}`;
+    }
+
+    async function overitDostupnostMesice(klic) {
+        try {
+            const response = await fetch(gvizUrl(DATA_DOC_ID, klic));
+            if (!response.ok) return false;
+            const text = await response.text();
+            if (!text || text.length < 20) return false;
+            const rows = parseCSV(text);
+            if (rows.length === 0) return false;
+            const detekce = detekovatSloupceData(rows[0]);
+            return detekce.idxCas !== -1 && detekce.idxJmeno !== -1 && detekce.idxOsCislo !== -1;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function zahajitNacitaniMesicu() {
+        const app = document.getElementById('app');
+        app.innerHTML = `<div class="status-msg">Hledám dostupné měsíce...</div>`;
+
+        const kandidati = generovatKandidatniMesice();
+        const vysledky = await Promise.all(kandidati.map(async klic => ({
+            klic, dostupny: await overitDostupnostMesice(klic)
+        })));
+
+        const dostupneMesice = vysledky.filter(v => v.dostupny).map(v => v.klic);
+
+        if (dostupneMesice.length === 0) {
+            app.innerHTML = `<div class="msg red" style="display:block">Nenašel jsem žádný list s daty (zkoušel jsem 01-2026 a další). Zkontrolujte prosím, že je tabulka nasdílená jako "Kdokoli s odkazem – Prohlížející" a že list existuje a je pojmenovaný přesně ve formátu MM-RRRR (např. 05-2026).</div>`;
+            return;
+        }
+
+        app.innerHTML = `
+            <div class="mesice-grid" id="mesice-grid"></div>
+            <div id="report-app"></div>`;
+
+        const grid = document.getElementById('mesice-grid');
+        grid.innerHTML = dostupneMesice.map(klic => `
+            <div class="mesic-btn" id="mesic-btn-${klic}" onclick="vybratMesic('${klic}')">${nazevMesiceCZ(klic)}</div>
+        `).join('');
+
+        // Automaticky načíst nejnovější dostupný měsíc
+        vybratMesic(dostupneMesice[0]);
+    }
+
+    function vybratMesic(klic) {
+        document.querySelectorAll('.mesic-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`mesic-btn-${klic}`);
+        if (btn) btn.classList.add('active');
+        nacistMesic(klic);
+    }
+
+    // --- Načtení a zpracování dat konkrétního měsíce ---
+    async function nacistMesic(klic) {
+        const reportApp = document.getElementById('report-app');
+        reportApp.innerHTML = `<div class="status-msg">Načítám data za ${nazevMesiceCZ(klic)}...</div>`;
+
+        try {
+            const [dataText, rezieText, ruceniText] = await Promise.all([
+                fetch(gvizUrl(DATA_DOC_ID, klic)).then(r => r.text()),
+                fetch(gvizUrl(REZIE_DOC_ID, klic)).then(r => r.ok ? r.text() : ''),
+                fetch(gvizUrl(RUCNI_DOC_ID, klic)).then(r => r.ok ? r.text() : '')
+            ]);
+
+            // --- Zpracování tabulky Data ---
+            const dataRows = parseCSV(dataText);
+            if (dataRows.length === 0) throw new Error('Tabulka Data je prázdná.');
+            const dIdx = detekovatSloupceData(dataRows[0]);
+            if (dIdx.idxCas === -1 || dIdx.idxJmeno === -1 || dIdx.idxOsCislo === -1) {
+                throw new Error('V tabulce Data se nepodařilo najít potřebné sloupce (Čas plánovaný skutečný / Celé jméno / Práci provedl). Zkontrolujte přesné názvy hlaviček.');
+            }
+
+            const osoby = {}; // osCislo -> {jmeno, casCelkem, kusyCelkem, vyrobniPrikazy:Set}
+            let celkemCasVsech = 0;
+            let celkemKusuVsech = 0;
+            const vsechnyVyrobniPrikazy = new Set();
+
+            dataRows.slice(1).forEach(cols => {
+                const cas = parseCislo(cols[dIdx.idxCas]);
+                const jmeno = ocistitBunku(cols[dIdx.idxJmeno]);
+                const osCislo = ocistitBunku(cols[dIdx.idxOsCislo]);
+                const mnozstvi = dIdx.idxMnozstvi !== -1 ? parseCislo(cols[dIdx.idxMnozstvi]) : 0;
+                const vp = dIdx.idxVyrobniPrikaz !== -1 ? ocistitBunku(cols[dIdx.idxVyrobniPrikaz]) : '';
+                if (!osCislo || !jmeno) return;
+
+                if (!osoby[osCislo]) osoby[osCislo] = { jmeno, casCelkem: 0, kusyCelkem: 0, vyrobniPrikazy: new Set() };
+                osoby[osCislo].casCelkem += cas;
+                osoby[osCislo].kusyCelkem += mnozstvi;
+                if (vp) osoby[osCislo].vyrobniPrikazy.add(vp);
+
+                celkemCasVsech += cas;
+                celkemKusuVsech += mnozstvi;
+                if (vp) vsechnyVyrobniPrikazy.add(vp);
+            });
+
+            // --- Zpracování tabulky Režie (jen lidé, kteří jsou v tabulce Data) ---
+            const rezieMap = {}; // osCislo -> minuty
+            if (rezieText) {
+                const rezieRows = parseCSV(rezieText);
+                if (rezieRows.length > 0) {
+                    const rIdx = detekovatSloupceRezie(rezieRows[0]);
+                    if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
+                        rezieRows.slice(1).forEach(cols => {
+                            const osCislo = ocistitBunku(cols[rIdx.idxOsCislo]);
+                            if (!osCislo || !osoby[osCislo]) return; // jen lidé z první tabulky
+                            const cas = parseCislo(cols[rIdx.idxCas]);
+                            rezieMap[osCislo] = (rezieMap[osCislo] || 0) + cas;
+                        });
+                    }
+                }
+            }
+
+            // --- Zpracování ručně doplňované tabulky (stálí zaměstnanci) ---
+            const ruceniMap = {}; // normalizovane jmeno -> {dochazka, neshody}
+            let pocetNeshodCelkem = null;
+            let cenaNeshodCelkem = null;
+            if (ruceniText) {
+                const ruceniRows = parseCSV(ruceniText).slice(1); // přeskočit hlavičku
+                ruceniRows.forEach(cols => {
+                    const jmeno = ocistitBunku(cols[0]);
+                    if (!jmeno) return;
+                    const dochazka = parseCislo(cols[1]);
+                    const neshody = parseCislo(cols[2]);
+                    const neshodyCelkemRaw = ocistitBunku(cols[4]);
+                    const cenaRaw = ocistitBunku(cols[5]);
+
+                    ruceniMap[normalizovatText(jmeno)] = { dochazka, neshody };
+
+                    if (pocetNeshodCelkem === null && neshodyCelkemRaw !== '') pocetNeshodCelkem = parseCislo(neshodyCelkemRaw);
+                    if (cenaNeshodCelkem === null && cenaRaw !== '') cenaNeshodCelkem = parseCislo(cenaRaw);
+                });
+            }
+
+            // --- Sestavení výsledných řádků ---
+            const stali = [];
+            const vypomoc = [];
+
+            Object.keys(osoby).forEach(osCislo => {
+                const o = osoby[osCislo];
+                const rezie = rezieMap[osCislo] || 0;
+                const podilProcent = celkemCasVsech > 0 ? (o.casCelkem / celkemCasVsech) * 100 : 0;
+                const pocetVP = o.vyrobniPrikazy.size;
+                const ksNaVP = pocetVP > 0 ? o.kusyCelkem / pocetVP : 0;
+
+                const ruceniInfo = ruceniMap[normalizovatText(o.jmeno)];
+
+                if (ruceniInfo) {
+                    const vykonProcent = ruceniInfo.dochazka > 0
+                        ? ((o.casCelkem + rezie) / (ruceniInfo.dochazka * 60)) * 100
+                        : null;
+                    stali.push({
+                        osCislo, jmeno: o.jmeno, vykonProcent, podilProcent, ksNaVP,
+                        neshody: ruceniInfo.neshody, dochazka: ruceniInfo.dochazka
+                    });
+                } else {
+                    vypomoc.push({ osCislo, jmeno: o.jmeno, podilProcent, ksNaVP });
+                }
+            });
+
+            stali.sort((a, b) => b.podilProcent - a.podilProcent);
+            vypomoc.sort((a, b) => b.podilProcent - a.podilProcent);
+
+            const prumerKsNaVP = vsechnyVyrobniPrikazy.size > 0 ? celkemKusuVsech / vsechnyVyrobniPrikazy.size : 0;
+
+            vykresliReport(klic, {
+                celkemCasVsech, celkemKusuVsech, prumerKsNaVP,
+                pocetNeshodCelkem, cenaNeshodCelkem,
+                stali, vypomoc
+            });
+
+        } catch (e) {
+            reportApp.innerHTML = `<div class="msg red" style="display:block">Chyba při zpracování dat za ${nazevMesiceCZ(klic)}: ${e.message}</div>`;
+        }
+    }
+
+    function radekTabulky(polozka, jeStaly) {
+        const vykonBunka = (jeStaly && polozka.vykonProcent !== null && polozka.vykonProcent !== undefined)
+            ? `<td class="zvyrazneno">${formatCislo(polozka.vykonProcent, 1)}%</td>`
+            : `<td class="prazdne">—</td>`;
+        const neshodyBunka = (jeStaly && polozka.neshody !== undefined)
+            ? `<td>${formatCislo(polozka.neshody, 0)}</td>`
+            : `<td class="prazdne">—</td>`;
+
+        return `
+            <tr>
+                <td class="jmeno-bunka">${polozka.jmeno}</td>
+                <td>${polozka.osCislo}</td>
+                ${vykonBunka}
+                <td>${formatCislo(polozka.podilProcent, 1)}%</td>
+                <td>${formatCislo(polozka.ksNaVP, 1)}</td>
+                ${neshodyBunka}
+            </tr>`;
+    }
+
+    function vykresliReport(klic, data) {
+        const reportApp = document.getElementById('report-app');
+
+        const staliHtml = data.stali.map(p => radekTabulky(p, true)).join('');
+        const vypomocHtml = data.vypomoc.map(p => radekTabulky(p, false)).join('');
+
+        reportApp.innerHTML = `
+            <div class="prehled-karta">
+                <div class="prehled-nadpis">📋 ${nazevMesiceCZ(klic)}</div>
+                <div class="prehled-podnadpis">Souhrnný přehled výkonů, neshod a docházky</div>
+                <div class="souhrn-grid">
+                    <div class="souhrn-karta"><span class="val">${formatCislo(data.celkemCasVsech, 0)}</span><span class="lbl">Celkem odvedeno minut</span></div>
+                    <div class="souhrn-karta"><span class="val">${formatCislo(data.celkemKusuVsech, 0)}</span><span class="lbl">Celkem vyrobeno kusů</span></div>
+                    <div class="souhrn-karta"><span class="val">${formatCislo(data.prumerKsNaVP, 1)}</span><span class="lbl">Průměr kusů na VP</span></div>
+                    <div class="souhrn-karta"><span class="val">${data.pocetNeshodCelkem !== null ? formatCislo(data.pocetNeshodCelkem, 0) : '—'}</span><span class="lbl">Počet neshod celkem</span></div>
+                    <div class="souhrn-karta"><span class="val">${data.cenaNeshodCelkem !== null ? formatKc(data.cenaNeshodCelkem) : '—'}</span><span class="lbl">Cena neshod celkem</span></div>
+                </div>
+            </div>
+
+            <div class="sekce-nadpis">👷 Stálí zaměstnanci</div>
+            <div class="prehled-karta">
+                ${data.stali.length > 0 ? `
+                <table class="prehled-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;">Jméno</th>
+                            <th>Osobní číslo</th>
+                            <th>Výkon %</th>
+                            <th>Podíl na výrobě %</th>
+                            <th>Počet ks / VP</th>
+                            <th>Počet neshod</th>
+                        </tr>
+                    </thead>
+                    <tbody>${staliHtml}</tbody>
+                </table>` : `<div class="status-msg">Žádný stálý zaměstnanec nebyl v ručně doplňované tabulce nalezen (kontrola shody podle jména).</div>`}
+            </div>
+
+            <div class="sekce-nadpis">🤝 Výpomoc</div>
+            <div class="prehled-karta">
+                ${data.vypomoc.length > 0 ? `
+                <table class="prehled-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;">Jméno</th>
+                            <th>Osobní číslo</th>
+                            <th>Výkon %</th>
+                            <th>Podíl na výrobě %</th>
+                            <th>Počet ks / VP</th>
+                            <th>Počet neshod</th>
+                        </tr>
+                    </thead>
+                    <tbody>${vypomocHtml}</tbody>
+                </table>` : `<div class="status-msg">Tento měsíc nikdo z výpomoci nepracoval.</div>`}
+            </div>`;
+    }
+</script>
+
+</body>
+</html>
