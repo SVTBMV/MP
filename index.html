@@ -171,18 +171,18 @@
     }
 
     // --- Zjištění dostupných měsíců ---
-    function generovatKandidatniMesice() {
+    function generovatKandidatniMesiceVzestupne() {
         const vysledek = [];
         const start = new Date(2026, 0, 1); // leden 2026
         const ted = new Date();
-        const konec = new Date(ted.getFullYear(), ted.getMonth() + 3, 1);
+        const konec = new Date(ted.getFullYear(), ted.getMonth() + 6, 1); // pár měsíců dopředu jako rezerva
         let d = new Date(start);
         while (d <= konec) {
             const mm = String(d.getMonth() + 1).padStart(2, '0');
             vysledek.push(`${mm}-${d.getFullYear()}`);
             d.setMonth(d.getMonth() + 1);
         }
-        return vysledek.reverse(); // od nejnovějšího
+        return vysledek; // chronologicky vzestupně
     }
 
     function nazevMesiceCZ(klic) {
@@ -190,31 +190,44 @@
         return `${NAZVY_MESICU[parseInt(mm, 10) - 1]} ${rrrr}`;
     }
 
-    async function overitDostupnostMesice(klic) {
-        try {
-            const response = await fetch(gvizUrl(DATA_DOC_ID, klic));
-            if (!response.ok) return false;
-            const text = await response.text();
-            if (!text || text.length < 20) return false;
+    // Google gviz při neexistujícím názvu listu občas tiše "spadne" na výchozí/poslední platný list
+    // místo aby vrátil chybu. Proto zjišťujeme dostupné měsíce POSTUPNĚ (chronologicky) a jakmile
+    // dva po sobě jdoucí požadavky vrátí úplně stejný obsah, je to znamení, že další list už neexistuje.
+    async function zjistitDostupneMesice() {
+        const kandidati = generovatKandidatniMesiceVzestupne();
+        const dostupne = [];
+        let posledniObsah = null;
+
+        for (const klic of kandidati) {
+            let text = '';
+            try {
+                const response = await fetch(gvizUrl(DATA_DOC_ID, klic));
+                text = response.ok ? await response.text() : '';
+            } catch (e) {
+                text = '';
+            }
+
+            if (!text || text.length < 20) break;
+            if (text === posledniObsah) break; // stejný obsah jako předchozí měsíc = list neexistuje (fallback)
+
             const rows = parseCSV(text);
-            if (rows.length === 0) return false;
+            if (rows.length < 2) break; // musí mít hlavičku + alespoň 1 řádek dat
+
             const detekce = detekovatSloupceData(rows[0]);
-            return detekce.idxCas !== -1 && detekce.idxJmeno !== -1 && detekce.idxOsCislo !== -1;
-        } catch (e) {
-            return false;
+            if (detekce.idxCas === -1 || detekce.idxJmeno === -1 || detekce.idxOsCislo === -1) break;
+
+            dostupne.push(klic);
+            posledniObsah = text;
         }
+
+        return dostupne.reverse(); // od nejnovějšího
     }
 
     async function zahajitNacitaniMesicu() {
         const app = document.getElementById('app');
         app.innerHTML = `<div class="status-msg">Hledám dostupné měsíce...</div>`;
 
-        const kandidati = generovatKandidatniMesice();
-        const vysledky = await Promise.all(kandidati.map(async klic => ({
-            klic, dostupny: await overitDostupnostMesice(klic)
-        })));
-
-        const dostupneMesice = vysledky.filter(v => v.dostupny).map(v => v.klic);
+        const dostupneMesice = await zjistitDostupneMesice();
 
         if (dostupneMesice.length === 0) {
             app.innerHTML = `<div class="msg red" style="display:block">Nenašel jsem žádný list s daty (zkoušel jsem 01-2026 a další). Zkontrolujte prosím, že je tabulka nasdílená jako "Kdokoli s odkazem – Prohlížející" a že list existuje a je pojmenovaný přesně ve formátu MM-RRRR (např. 05-2026).</div>`;
