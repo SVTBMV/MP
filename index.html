@@ -24,9 +24,19 @@
         .login-error { color: var(--error); font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px; min-height: 1em; }
 
         .mesice-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
-        .mesic-btn { background: var(--card); border: 2px solid var(--border); border-radius: 10px; padding: 12px 18px; color: white; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
+        .mesic-btn { background: var(--card); border: 2px solid var(--border); border-radius: 10px; padding: 12px 18px; color: white; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; }
         .mesic-btn:hover { border-color: var(--accent); background: #2d3a6d; }
         .mesic-btn.active { border-color: var(--accent); background: var(--accent); color: #000; }
+        .mesic-x { font-size: 0.75rem; color: #94a3b8; cursor: pointer; }
+        .mesic-x:hover { color: var(--error); }
+        .mesic-btn.active .mesic-x { color: rgba(0,0,0,0.5); }
+        .mesic-btn.active .mesic-x:hover { color: var(--error); }
+
+        .pridat-mesic-box { display: flex; gap: 10px; margin-bottom: 8px; max-width: 420px; }
+        .pridat-mesic-box input { flex: 1; background: var(--card); border: 1px solid var(--border); padding: 12px 14px; border-radius: 8px; color: white; outline: none; font-size: 0.9rem; box-sizing: border-box; }
+        .pridat-mesic-box input:focus { border-color: var(--accent); }
+        .pridat-mesic-box button { background: var(--accent); color: #000; font-weight: bold; border: none; padding: 12px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; }
+        .pridat-mesic-box button:hover { opacity: 0.9; }
 
         .prehled-karta { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
         .prehled-nadpis { font-size: 1.3rem; font-weight: 800; color: #fff; margin-bottom: 4px; }
@@ -170,81 +180,96 @@
         }
     }
 
-    // --- Zjištění dostupných měsíců ---
-    function generovatKandidatniMesiceVzestupne() {
-        const vysledek = [];
-        const start = new Date(2026, 0, 1); // leden 2026
-        const ted = new Date();
-        const konec = new Date(ted.getFullYear(), ted.getMonth() + 6, 1); // pár měsíců dopředu jako rezerva
-        let d = new Date(start);
-        while (d <= konec) {
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            vysledek.push(`${mm}-${d.getFullYear()}`);
-            d.setMonth(d.getMonth() + 1);
-        }
-        return vysledek; // chronologicky vzestupně
-    }
+    // --- Správa měsíců (uživatel je přidává sám, appka si je pamatuje) ---
+    const MESICE_STORAGE_KEY = 'mesicni_prehled_seznam_mesicu_v1';
 
     function nazevMesiceCZ(klic) {
         const [mm, rrrr] = klic.split('-');
         return `${NAZVY_MESICU[parseInt(mm, 10) - 1]} ${rrrr}`;
     }
 
-    // Google gviz při neexistujícím názvu listu občas tiše "spadne" na výchozí/poslední platný list
-    // místo aby vrátil chybu. Proto zjišťujeme dostupné měsíce POSTUPNĚ (chronologicky) a jakmile
-    // dva po sobě jdoucí požadavky vrátí úplně stejný obsah, je to znamení, že další list už neexistuje.
-    async function zjistitDostupneMesice() {
-        const kandidati = generovatKandidatniMesiceVzestupne();
-        const dostupne = [];
-        let posledniObsah = null;
-
-        for (const klic of kandidati) {
-            let text = '';
-            try {
-                const response = await fetch(gvizUrl(DATA_DOC_ID, klic));
-                text = response.ok ? await response.text() : '';
-            } catch (e) {
-                text = '';
-            }
-
-            if (!text || text.length < 20) break;
-            if (text === posledniObsah) break; // stejný obsah jako předchozí měsíc = list neexistuje (fallback)
-
-            const rows = parseCSV(text);
-            if (rows.length < 2) break; // musí mít hlavičku + alespoň 1 řádek dat
-
-            const detekce = detekovatSloupceData(rows[0]);
-            if (detekce.idxCas === -1 || detekce.idxJmeno === -1 || detekce.idxOsCislo === -1) break;
-
-            dostupne.push(klic);
-            posledniObsah = text;
-        }
-
-        return dostupne.reverse(); // od nejnovějšího
+    function jePlatnyKlicMesice(klic) {
+        return /^(0[1-9]|1[0-2])-\d{4}$/.test(klic);
     }
 
-    async function zahajitNacitaniMesicu() {
-        const app = document.getElementById('app');
-        app.innerHTML = `<div class="status-msg">Hledám dostupné měsíce...</div>`;
+    function nacistSeznamMesicu() {
+        try {
+            const raw = localStorage.getItem(MESICE_STORAGE_KEY);
+            if (raw) return JSON.parse(raw);
+        } catch (e) { /* ignore */ }
+        return ['02-2026', '01-2026']; // výchozí předvyplnění pro první použití
+    }
 
-        const dostupneMesice = await zjistitDostupneMesice();
+    function ulozitSeznamMesicu(seznam) {
+        try { localStorage.setItem(MESICE_STORAGE_KEY, JSON.stringify(seznam)); } catch (e) { /* ignore */ }
+    }
 
-        if (dostupneMesice.length === 0) {
-            app.innerHTML = `<div class="msg red" style="display:block">Nenašel jsem žádný list s daty (zkoušel jsem 01-2026 a další). Zkontrolujte prosím, že je tabulka nasdílená jako "Kdokoli s odkazem – Prohlížející" a že list existuje a je pojmenovaný přesně ve formátu MM-RRRR (např. 05-2026).</div>`;
+    function serazenoSestupne(seznam) {
+        return [...seznam].sort((a, b) => {
+            const [am, ar] = a.split('-').map(Number);
+            const [bm, br] = b.split('-').map(Number);
+            return br !== ar ? br - ar : bm - am;
+        });
+    }
+
+    function pridatMesic() {
+        const input = document.getElementById('novy-mesic-input');
+        const errorEl = document.getElementById('novy-mesic-error');
+        const klic = ocistitBunku(input.value);
+
+        if (!jePlatnyKlicMesice(klic)) {
+            errorEl.textContent = 'Zadejte měsíc ve formátu MM-RRRR, např. 03-2026.';
             return;
         }
+        errorEl.textContent = '';
 
+        let seznam = nacistSeznamMesicu();
+        if (!seznam.includes(klic)) {
+            seznam.push(klic);
+            ulozitSeznamMesicu(seznam);
+        }
+        input.value = '';
+        vykresliVyberMesicu();
+        vybratMesic(klic);
+    }
+
+    function odebratMesic(klic, event) {
+        event.stopPropagation();
+        let seznam = nacistSeznamMesicu().filter(m => m !== klic);
+        ulozitSeznamMesicu(seznam);
+        vykresliVyberMesicu();
+        const dalsi = serazenoSestupne(seznam);
+        if (dalsi.length > 0) vybratMesic(dalsi[0]);
+        else document.getElementById('report-app').innerHTML = `<div class="status-msg">Přidejte měsíc, který chcete zobrazit.</div>`;
+    }
+
+    function vykresliVyberMesicu() {
+        const grid = document.getElementById('mesice-grid');
+        const seznam = serazenoSestupne(nacistSeznamMesicu());
+        grid.innerHTML = seznam.map(klic => `
+            <div class="mesic-btn" id="mesic-btn-${klic}" onclick="vybratMesic('${klic}')">
+                ${nazevMesiceCZ(klic)}
+                <span class="mesic-x" onclick="odebratMesic('${klic}', event)" title="Odebrat ze seznamu">✕</span>
+            </div>
+        `).join('');
+    }
+
+    function zahajitNacitaniMesicu() {
+        const app = document.getElementById('app');
         app.innerHTML = `
+            <div class="pridat-mesic-box">
+                <input type="text" id="novy-mesic-input" placeholder="MM-RRRR, např. 03-2026" onkeydown="if(event.key==='Enter') pridatMesic()">
+                <button onclick="pridatMesic()">+ Přidat měsíc</button>
+            </div>
+            <div class="login-error" id="novy-mesic-error"></div>
             <div class="mesice-grid" id="mesice-grid"></div>
             <div id="report-app"></div>`;
 
-        const grid = document.getElementById('mesice-grid');
-        grid.innerHTML = dostupneMesice.map(klic => `
-            <div class="mesic-btn" id="mesic-btn-${klic}" onclick="vybratMesic('${klic}')">${nazevMesiceCZ(klic)}</div>
-        `).join('');
+        vykresliVyberMesicu();
 
-        // Automaticky načíst nejnovější dostupný měsíc
-        vybratMesic(dostupneMesice[0]);
+        const seznam = serazenoSestupne(nacistSeznamMesicu());
+        if (seznam.length > 0) vybratMesic(seznam[0]);
+        else document.getElementById('report-app').innerHTML = `<div class="status-msg">Přidejte měsíc, který chcete zobrazit.</div>`;
     }
 
     function vybratMesic(klic) {
