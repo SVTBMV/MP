@@ -56,6 +56,13 @@
         table.prehled-table td.jmeno-bunka { text-align: left; font-weight: 600; color: #fff; }
         table.prehled-table td.prazdne { color: #475569; }
         table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
+
+        .graf-radek { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+        .graf-jmeno { width: 160px; min-width: 160px; font-size: 0.85rem; color: #cbd5e1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .graf-bar-obal { flex: 1; background: rgba(15, 23, 42, 0.5); border-radius: 6px; height: 18px; overflow: hidden; }
+        .graf-bar { height: 100%; background: var(--accent); border-radius: 6px; }
+        .graf-bar.vypomoc { background: #64748b; }
+        .graf-procento { width: 55px; min-width: 55px; text-align: right; font-size: 0.85rem; font-weight: 800; color: var(--accent); }
     </style>
 </head>
 <body>
@@ -84,8 +91,51 @@
 
     const NAZVY_MESICU = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
 
-    function gvizUrl(docId, sheetName) {
-        return `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    function gvizJsonUrl(docId, sheetName) {
+        return `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+    }
+
+    function hodnotaBunky(cell) {
+        if (cell === null || cell === undefined) return '';
+        if (cell.v === null || cell.v === undefined) return '';
+        return String(cell.v);
+    }
+
+    // Načte list přes Google Visualization API (JSON) - na rozdíl od CSV umí spolehlivě
+    // rozpoznat, že požadovaný list neexistuje, a vrátí explicitní chybu.
+    async function nacistListGviz(docId, sheetName, popisTabulky) {
+        let text;
+        try {
+            const response = await fetch(gvizJsonUrl(docId, sheetName));
+            text = await response.text();
+        } catch (e) {
+            throw new Error(`Nepodařilo se spojit s tabulkou "${popisTabulky}". Zkontrolujte připojení.`);
+        }
+
+        const match = text.match(/setResponse\(([\s\S]*)\)\s*;?\s*$/);
+        if (!match) {
+            throw new Error(`List "${sheetName}" v tabulce "${popisTabulky}" neexistuje nebo k němu není přístup.`);
+        }
+
+        let data;
+        try {
+            data = JSON.parse(match[1]);
+        } catch (e) {
+            throw new Error(`List "${sheetName}" v tabulce "${popisTabulky}" se nepodařilo zpracovat.`);
+        }
+
+        if (data.status === 'error') {
+            throw new Error(`List "${sheetName}" v tabulce "${popisTabulky}" neexistuje.`);
+        }
+
+        if (!data.table || !data.table.cols) {
+            throw new Error(`List "${sheetName}" v tabulce "${popisTabulky}" je prázdný.`);
+        }
+
+        const headerRow = data.table.cols.map(c => c.label || '');
+        const dataRows = (data.table.rows || []).map(r => (r.c || []).map(hodnotaBunky));
+
+        return { headerRow, dataRows, podpisObsahu: JSON.stringify(dataRows.slice(0, 3)) };
     }
 
     // --- CSV pomocné funkce ---
@@ -280,21 +330,24 @@
     }
 
     // --- Načtení a zpracování dat konkrétního měsíce ---
+    const nactenePodpisy = {}; // klic mesice -> podpis obsahu (pro odhalení duplicit/fallbacku)
+
     async function nacistMesic(klic) {
         const reportApp = document.getElementById('report-app');
         reportApp.innerHTML = `<div class="status-msg">Načítám data za ${nazevMesiceCZ(klic)}...</div>`;
 
         try {
-            const [dataText, rezieText, ruceniText] = await Promise.all([
-                fetch(gvizUrl(DATA_DOC_ID, klic)).then(r => r.text()),
-                fetch(gvizUrl(REZIE_DOC_ID, klic)).then(r => r.ok ? r.text() : ''),
-                fetch(gvizUrl(RUCNI_DOC_ID, klic)).then(r => r.ok ? r.text() : '')
-            ]);
+            const dataList = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
 
-            // --- Zpracování tabulky Data ---
-            const dataRows = parseCSV(dataText);
-            if (dataRows.length === 0) throw new Error('Tabulka Data je prázdná.');
-            const dIdx = detekovatSloupceData(dataRows[0]);
+            // Bezpečnostní kontrola: pokud jiný, už dříve úspěšně načtený měsíc má úplně
+            // identický obsah, je vysoká šance, že Google vrátil špatný (fallback) list.
+            const duplicitniKlic = Object.keys(nactenePodpisy).find(k => k !== klic && nactenePodpisy[k] === dataList.podpisObsahu);
+            if (duplicitniKlic) {
+                throw new Error(`List "${klic}" má identický obsah jako list "${duplicitniKlic}" — nejspíš neexistuje a Google vrátil data jiného listu. Zkontrolujte, že list "${klic}" v tabulce Data skutečně existuje a je přesně takto pojmenovaný.`);
+            }
+            nactenePodpisy[klic] = dataList.podpisObsahu;
+
+            const dIdx = detekovatSloupceData(dataList.headerRow);
             if (dIdx.idxCas === -1 || dIdx.idxJmeno === -1 || dIdx.idxOsCislo === -1) {
                 throw new Error('V tabulce Data se nepodařilo najít potřebné sloupce (Čas plánovaný skutečný / Celé jméno / Práci provedl). Zkontrolujte přesné názvy hlaviček.');
             }
@@ -304,7 +357,7 @@
             let celkemKusuVsech = 0;
             const vsechnyVyrobniPrikazy = new Set();
 
-            dataRows.slice(1).forEach(cols => {
+            dataList.dataRows.forEach(cols => {
                 const cas = parseCislo(cols[dIdx.idxCas]);
                 const jmeno = ocistitBunku(cols[dIdx.idxJmeno]);
                 const osCislo = ocistitBunku(cols[dIdx.idxOsCislo]);
@@ -322,30 +375,34 @@
                 if (vp) vsechnyVyrobniPrikazy.add(vp);
             });
 
+            if (Object.keys(osoby).length === 0) {
+                throw new Error(`List "${klic}" v tabulce Data neobsahuje žádné platné řádky.`);
+            }
+
             // --- Zpracování tabulky Režie (jen lidé, kteří jsou v tabulce Data) ---
             const rezieMap = {}; // osCislo -> minuty
-            if (rezieText) {
-                const rezieRows = parseCSV(rezieText);
-                if (rezieRows.length > 0) {
-                    const rIdx = detekovatSloupceRezie(rezieRows[0]);
-                    if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
-                        rezieRows.slice(1).forEach(cols => {
-                            const osCislo = ocistitBunku(cols[rIdx.idxOsCislo]);
-                            if (!osCislo || !osoby[osCislo]) return; // jen lidé z první tabulky
-                            const cas = parseCislo(cols[rIdx.idxCas]);
-                            rezieMap[osCislo] = (rezieMap[osCislo] || 0) + cas;
-                        });
-                    }
+            try {
+                const rezieList = await nacistListGviz(REZIE_DOC_ID, klic, 'Režie');
+                const rIdx = detekovatSloupceRezie(rezieList.headerRow);
+                if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
+                    rezieList.dataRows.forEach(cols => {
+                        const osCislo = ocistitBunku(cols[rIdx.idxOsCislo]);
+                        if (!osCislo || !osoby[osCislo]) return; // jen lidé z první tabulky
+                        const cas = parseCislo(cols[rIdx.idxCas]);
+                        rezieMap[osCislo] = (rezieMap[osCislo] || 0) + cas;
+                    });
                 }
+            } catch (e) {
+                // List Režie pro tento měsíc nejde načíst - pokračujeme bez režií (0)
             }
 
             // --- Zpracování ručně doplňované tabulky (stálí zaměstnanci) ---
             const ruceniMap = {}; // normalizovane jmeno -> {dochazka, neshody}
             let pocetNeshodCelkem = null;
             let cenaNeshodCelkem = null;
-            if (ruceniText) {
-                const ruceniRows = parseCSV(ruceniText).slice(1); // přeskočit hlavičku
-                ruceniRows.forEach(cols => {
+            try {
+                const ruceniList = await nacistListGviz(RUCNI_DOC_ID, klic, 'Ručně doplňovaná data');
+                ruceniList.dataRows.forEach(cols => {
                     const jmeno = ocistitBunku(cols[0]);
                     if (!jmeno) return;
                     const dochazka = parseCislo(cols[1]);
@@ -358,6 +415,8 @@
                     if (pocetNeshodCelkem === null && neshodyCelkemRaw !== '') pocetNeshodCelkem = parseCislo(neshodyCelkemRaw);
                     if (cenaNeshodCelkem === null && cenaRaw !== '') cenaNeshodCelkem = parseCislo(cenaRaw);
                 });
+            } catch (e) {
+                // List s ručními daty pro tento měsíc nejde načíst - pokračujeme bez něj
             }
 
             // --- Sestavení výsledných řádků ---
@@ -421,6 +480,34 @@
             </tr>`;
     }
 
+    function vykresliGrafVyroby(stali, vypomoc) {
+        const vsichni = [...stali, ...vypomoc]
+            .map(p => ({ jmeno: p.jmeno, podilProcent: p.podilProcent, jeStaly: stali.includes(p) }))
+            .sort((a, b) => b.podilProcent - a.podilProcent);
+
+        if (vsichni.length === 0) return '';
+
+        const maxPodil = Math.max(...vsichni.map(p => p.podilProcent), 0.001);
+
+        const radky = vsichni.map(p => {
+            const sirka = Math.max((p.podilProcent / maxPodil) * 100, 1.5);
+            return `
+                <div class="graf-radek">
+                    <div class="graf-jmeno" title="${p.jmeno}">${p.jmeno}</div>
+                    <div class="graf-bar-obal">
+                        <div class="graf-bar ${p.jeStaly ? '' : 'vypomoc'}" style="width:${sirka}%;"></div>
+                    </div>
+                    <div class="graf-procento">${formatCislo(p.podilProcent, 1)}%</div>
+                </div>`;
+        }).join('');
+
+        return `
+            <div class="sekce-nadpis">📊 Podíl na výrobě</div>
+            <div class="prehled-karta">
+                ${radky}
+            </div>`;
+    }
+
     function vykresliReport(klic, data) {
         const reportApp = document.getElementById('report-app');
 
@@ -439,6 +526,8 @@
                     <div class="souhrn-karta"><span class="val">${data.cenaNeshodCelkem !== null ? formatKc(data.cenaNeshodCelkem) : '—'}</span><span class="lbl">Cena neshod celkem</span></div>
                 </div>
             </div>
+
+            ${vykresliGrafVyroby(data.stali, data.vypomoc)}
 
             <div class="sekce-nadpis">👷 Stálí zaměstnanci</div>
             <div class="prehled-karta">
