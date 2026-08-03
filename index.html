@@ -57,13 +57,13 @@
         table.prehled-table td.prazdne { color: #475569; }
         table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
 
-        .kolac-wrap { display: flex; gap: 30px; align-items: center; flex-wrap: wrap; }
-        .kolac-obal { position: relative; width: 220px; height: 220px; min-width: 220px; }
+        .kolac-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; }
+        .kolac-obal { position: relative; width: min(420px, 80vw); aspect-ratio: 1 / 1; }
         .kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px var(--border); }
-        .kolac-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 0.7rem; font-weight: 800; color: #0f172a; background: rgba(255,255,255,0.85); padding: 2px 6px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
-        .kolac-legenda { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
-        .legenda-radek { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
-        .legenda-barva { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+        .kolac-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 0.85rem; font-weight: 800; color: #0f172a; background: rgba(255,255,255,0.85); padding: 3px 9px; border-radius: 8px; white-space: nowrap; pointer-events: none; }
+        .kolac-legenda { width: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 20px; }
+        .legenda-radek { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
+        .legenda-barva { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
         .legenda-jmeno { flex: 1; color: #cbd5e1; font-weight: 600; }
         .legenda-procento { font-weight: 800; color: #fff; }
     </style>
@@ -265,25 +265,44 @@
         });
     }
 
-    function pridatMesic() {
+    async function pridatMesic() {
         const input = document.getElementById('novy-mesic-input');
         const errorEl = document.getElementById('novy-mesic-error');
+        const tlacitko = document.getElementById('pridat-mesic-tlacitko');
         const klic = ocistitBunku(input.value);
 
         if (!jePlatnyKlicMesice(klic)) {
             errorEl.textContent = 'Zadejte měsíc ve formátu MM-RRRR, např. 03-2026.';
             return;
         }
-        errorEl.textContent = '';
 
         let seznam = nacistSeznamMesicu();
-        if (!seznam.includes(klic)) {
+        if (seznam.includes(klic)) {
+            errorEl.textContent = 'Tento měsíc už je v seznamu.';
+            return;
+        }
+
+        errorEl.style.color = 'var(--accent)';
+        errorEl.textContent = 'Ověřuji, že list existuje...';
+        tlacitko.disabled = true;
+
+        try {
+            const vysledek = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
+            if (vysledek.dataRows.length === 0) {
+                throw new Error('list existuje, ale je prázdný');
+            }
+            errorEl.textContent = '';
             seznam.push(klic);
             ulozitSeznamMesicu(seznam);
+            input.value = '';
+            vykresliVyberMesicu();
+            vybratMesic(klic);
+        } catch (e) {
+            errorEl.style.color = 'var(--error)';
+            errorEl.textContent = `List "${klic}" nebyl v tabulce Data nalezen (${e.message}). Zkontrolujte přesný název listu v Google Sheets.`;
+        } finally {
+            tlacitko.disabled = false;
         }
-        input.value = '';
-        vykresliVyberMesicu();
-        vybratMesic(klic);
     }
 
     function odebratMesic(klic, event) {
@@ -312,7 +331,7 @@
         app.innerHTML = `
             <div class="pridat-mesic-box">
                 <input type="text" id="novy-mesic-input" placeholder="MM-RRRR, např. 03-2026" onkeydown="if(event.key==='Enter') pridatMesic()">
-                <button onclick="pridatMesic()">+ Přidat měsíc</button>
+                <button id="pridat-mesic-tlacitko" onclick="pridatMesic()">+ Přidat měsíc</button>
             </div>
             <div class="login-error" id="novy-mesic-error"></div>
             <div class="mesice-grid" id="mesice-grid"></div>
