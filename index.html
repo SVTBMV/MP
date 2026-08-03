@@ -57,12 +57,15 @@
         table.prehled-table td.prazdne { color: #475569; }
         table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
 
-        .graf-radek { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
-        .graf-jmeno { width: 160px; min-width: 160px; font-size: 0.85rem; color: #cbd5e1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .graf-bar-obal { flex: 1; background: rgba(15, 23, 42, 0.5); border-radius: 6px; height: 18px; overflow: hidden; }
-        .graf-bar { height: 100%; background: var(--accent); border-radius: 6px; }
-        .graf-bar.vypomoc { background: #64748b; }
-        .graf-procento { width: 55px; min-width: 55px; text-align: right; font-size: 0.85rem; font-weight: 800; color: var(--accent); }
+        .kolac-wrap { display: flex; gap: 30px; align-items: center; flex-wrap: wrap; }
+        .kolac-obal { position: relative; width: 220px; height: 220px; min-width: 220px; }
+        .kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px var(--border); }
+        .kolac-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 0.7rem; font-weight: 800; color: #0f172a; background: rgba(255,255,255,0.85); padding: 2px 6px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
+        .kolac-legenda { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+        .legenda-radek { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
+        .legenda-barva { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+        .legenda-jmeno { flex: 1; color: #cbd5e1; font-weight: 600; }
+        .legenda-procento { font-weight: 800; color: #fff; }
     </style>
 </head>
 <body>
@@ -330,22 +333,12 @@
     }
 
     // --- Načtení a zpracování dat konkrétního měsíce ---
-    const nactenePodpisy = {}; // klic mesice -> podpis obsahu (pro odhalení duplicit/fallbacku)
-
     async function nacistMesic(klic) {
         const reportApp = document.getElementById('report-app');
         reportApp.innerHTML = `<div class="status-msg">Načítám data za ${nazevMesiceCZ(klic)}...</div>`;
 
         try {
             const dataList = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
-
-            // Bezpečnostní kontrola: pokud jiný, už dříve úspěšně načtený měsíc má úplně
-            // identický obsah, je vysoká šance, že Google vrátil špatný (fallback) list.
-            const duplicitniKlic = Object.keys(nactenePodpisy).find(k => k !== klic && nactenePodpisy[k] === dataList.podpisObsahu);
-            if (duplicitniKlic) {
-                throw new Error(`List "${klic}" má identický obsah jako list "${duplicitniKlic}" — nejspíš neexistuje a Google vrátil data jiného listu. Zkontrolujte, že list "${klic}" v tabulce Data skutečně existuje a je přesně takto pojmenovaný.`);
-            }
-            nactenePodpisy[klic] = dataList.podpisObsahu;
 
             const dIdx = detekovatSloupceData(dataList.headerRow);
             if (dIdx.idxCas === -1 || dIdx.idxJmeno === -1 || dIdx.idxOsCislo === -1) {
@@ -481,30 +474,47 @@
     }
 
     function vykresliGrafVyroby(stali, vypomoc) {
-        const vsichni = [...stali, ...vypomoc]
-            .map(p => ({ jmeno: p.jmeno, podilProcent: p.podilProcent, jeStaly: stali.includes(p) }))
-            .sort((a, b) => b.podilProcent - a.podilProcent);
-
+        const vsichni = [...stali, ...vypomoc].sort((a, b) => b.podilProcent - a.podilProcent);
         if (vsichni.length === 0) return '';
 
-        const maxPodil = Math.max(...vsichni.map(p => p.podilProcent), 0.001);
+        const barvy = vsichni.map((_, i) => `hsl(${Math.round((i * 360) / vsichni.length)}, 65%, 55%)`);
 
-        const radky = vsichni.map(p => {
-            const sirka = Math.max((p.podilProcent / maxPodil) * 100, 1.5);
-            return `
-                <div class="graf-radek">
-                    <div class="graf-jmeno" title="${p.jmeno}">${p.jmeno}</div>
-                    <div class="graf-bar-obal">
-                        <div class="graf-bar ${p.jeStaly ? '' : 'vypomoc'}" style="width:${sirka}%;"></div>
-                    </div>
-                    <div class="graf-procento">${formatCislo(p.podilProcent, 1)}%</div>
-                </div>`;
-        }).join('');
+        let kumulativni = 0;
+        const segmentyGradient = [];
+        const stitky = [];
+
+        vsichni.forEach((p, i) => {
+            const start = kumulativni;
+            kumulativni += p.podilProcent;
+            segmentyGradient.push(`${barvy[i]} ${start}% ${kumulativni}%`);
+
+            // Popisek přímo na výseči jen u dost velkých podílů, aby se text nemačkal
+            if (p.podilProcent >= 6) {
+                const stredProcenta = (start + kumulativni) / 2;
+                const uhelRad = (stredProcenta * 3.6 - 90) * (Math.PI / 180);
+                const x = 50 + 32 * Math.cos(uhelRad);
+                const y = 50 + 32 * Math.sin(uhelRad);
+                stitky.push(`<div class="kolac-stitek" style="left:${x}%; top:${y}%;">${p.jmeno.split(' ')[0]}</div>`);
+            }
+        });
+
+        const legenda = vsichni.map((p, i) => `
+            <div class="legenda-radek">
+                <span class="legenda-barva" style="background:${barvy[i]};"></span>
+                <span class="legenda-jmeno">${p.jmeno}</span>
+                <span class="legenda-procento">${formatCislo(p.podilProcent, 1)}%</span>
+            </div>`).join('');
 
         return `
             <div class="sekce-nadpis">📊 Podíl na výrobě</div>
             <div class="prehled-karta">
-                ${radky}
+                <div class="kolac-wrap">
+                    <div class="kolac-obal">
+                        <div class="kolac" style="background: conic-gradient(${segmentyGradient.join(', ')});"></div>
+                        ${stitky.join('')}
+                    </div>
+                    <div class="kolac-legenda">${legenda}</div>
+                </div>
             </div>`;
     }
 
