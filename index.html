@@ -72,8 +72,7 @@
             .tisk-stranka:last-child { page-break-after: auto; }
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
-        .tisk-stranka h2 { text-align: center; font-size: 1.4rem; margin-bottom: 4px; }
-        .tisk-stranka .tisk-podtitul { text-align: center; color: #555; margin-bottom: 20px; font-size: 0.95rem; }
+        .tisk-hlavicka-radek { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #333; font-weight: 800; font-size: 1.05rem; }
         table.tisk-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-variant-numeric: tabular-nums; }
         table.tisk-table th, table.tisk-table td { border: 1px solid #333; padding: 5px 10px; text-align: right; font-size: 0.85rem; }
         table.tisk-table th { background: #dbe3ee !important; font-weight: 700; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -633,16 +632,25 @@
         const data = aktualniReportData;
         const klic = aktualniReportKlic;
 
-        // Stránka 1: tabulka - stálí i výpomoc jednotlivě, seřazeno dle podílu na výrobě
+        // Stránka 1: tabulka - stálí jednotlivě, výpomoc sečtena do jednoho řádku
         const radkyStali = data.stali.map(p => radekTiskove(p)).join('');
-        const radkyVypomoc = data.vypomoc.map(p => radekTiskove(p)).join('');
-        const oddelovac = (data.stali.length > 0 && data.vypomoc.length > 0)
+        const radekVypomocSoucet = data.vypomocSouhrn ? `
+            <tr>
+                <td>Výpomoc</td>
+                <td class="prazdne-tisk">—</td>
+                <td>${formatCislo(data.vypomocSouhrn.podilProcent, 1)}%</td>
+                <td>${formatCislo(data.vypomocSouhrn.ksNaVP, 1)}</td>
+                <td class="prazdne-tisk">—</td>
+            </tr>` : '';
+        const oddelovac = (data.stali.length > 0 && data.vypomocSouhrn)
             ? `<tr class="tisk-oddelovac"><td colspan="5"></td></tr>` : '';
 
         const stranka1 = `
             <div class="tisk-stranka">
-                <h2>Přehled výroby — ${nazevMesiceCZ(klic)}</h2>
-                <div class="tisk-podtitul">Souhrn výkonů dle osobních čísel</div>
+                <div class="tisk-hlavicka-radek">
+                    <span>Přehled výroby</span>
+                    <span>${nazevMesiceCZ(klic)}</span>
+                </div>
                 <table class="tisk-table">
                     <thead>
                         <tr>
@@ -653,7 +661,7 @@
                             <th>Počet neshod</th>
                         </tr>
                     </thead>
-                    <tbody>${radkyStali}${oddelovac}${radkyVypomoc}</tbody>
+                    <tbody>${radkyStali}${oddelovac}${radekVypomocSoucet}</tbody>
                 </table>
                 <table class="tisk-souhrn">
                     <tr><td class="lbl-tisk">Celkem odvedeno minut</td><td class="val-tisk">${formatCislo(data.celkemCasVsech, 0)}</td></tr>
@@ -664,8 +672,9 @@
                 </table>
             </div>`;
 
-        // Stránka 2: graf - nejprve stálí, pak výpomoc (každý zvlášť), označen jen osobním číslem
-        const vsichniProGraf = [...data.stali, ...data.vypomoc];
+        // Stránka 2: graf - stálí jednotlivě, výpomoc jako jedna souhrnná výseč
+        const vsichniProGraf = [...data.stali];
+        if (data.vypomocSouhrn) vsichniProGraf.push({ osCislo: 'Výpomoc', podilProcent: data.vypomocSouhrn.podilProcent });
         const barvy = vsichniProGraf.map((_, i) => `hsl(${Math.round((i * 360) / vsichniProGraf.length)}, 65%, 50%)`);
 
         let kumulativni = 0;
@@ -684,8 +693,10 @@
 
         const stranka2 = `
             <div class="tisk-stranka">
-                <h2>Podíl na výrobě — ${nazevMesiceCZ(klic)}</h2>
-                <div class="tisk-podtitul">Dle osobních čísel</div>
+                <div class="tisk-hlavicka-radek">
+                    <span>Podíl na výrobě</span>
+                    <span>${nazevMesiceCZ(klic)}</span>
+                </div>
                 <div class="tisk-kolac-obal">
                     <div class="tisk-kolac" style="background: conic-gradient(${segmenty.join(', ')});"></div>
                     ${stitky.join('')}
