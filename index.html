@@ -56,6 +56,7 @@
         table.prehled-table td.jmeno-bunka { text-align: left; font-weight: 600; color: #fff; }
         table.prehled-table td.prazdne { color: #475569; }
         table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
+        .vypomoc-souhrn-karta { border-color: rgba(56, 189, 248, 0.35); margin-bottom: 12px; }
 
         .kolac-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; }
         .kolac-obal { position: relative; width: min(900px, 100%); aspect-ratio: 1 / 1; }
@@ -476,12 +477,33 @@
             stali.sort((a, b) => b.podilProcent - a.podilProcent);
             vypomoc.sort((a, b) => b.podilProcent - a.podilProcent);
 
+            // Souhrn všech "výpomoc" dohromady jako jedna položka
+            let vypomocSouhrn = null;
+            if (vypomoc.length > 0) {
+                let vypomocCas = 0;
+                let vypomocKusy = 0;
+                const vypomocVP = new Set();
+                Object.keys(osoby).forEach(osCislo => {
+                    if (!ruceniMap[normalizovatText(osoby[osCislo].jmeno)]) {
+                        vypomocCas += osoby[osCislo].casCelkem;
+                        vypomocKusy += osoby[osCislo].kusyCelkem;
+                        osoby[osCislo].vyrobniPrikazy.forEach(vp => vypomocVP.add(vp));
+                    }
+                });
+                vypomocSouhrn = {
+                    jmeno: 'Výpomoc celkem',
+                    pocetLidi: vypomoc.length,
+                    podilProcent: celkemCasVsech > 0 ? (vypomocCas / celkemCasVsech) * 100 : 0,
+                    ksNaVP: vypomocVP.size > 0 ? vypomocKusy / vypomocVP.size : 0
+                };
+            }
+
             const prumerKsNaVP = vsechnyVyrobniPrikazy.size > 0 ? celkemKusuVsech / vsechnyVyrobniPrikazy.size : 0;
 
             vykresliReport(klic, {
                 celkemCasVsech, celkemKusuVsech, prumerKsNaVP,
                 pocetNeshodCelkem, cenaNeshodCelkem,
-                stali, vypomoc
+                stali, vypomoc, vypomocSouhrn
             });
 
         } catch (e) {
@@ -508,8 +530,10 @@
             </tr>`;
     }
 
-    function vykresliGrafVyroby(stali, vypomoc) {
-        const vsichni = [...stali, ...vypomoc].sort((a, b) => b.podilProcent - a.podilProcent);
+    function vykresliGrafVyroby(stali, vypomocSouhrn) {
+        const vsichni = [...stali];
+        if (vypomocSouhrn) vsichni.push(vypomocSouhrn);
+        vsichni.sort((a, b) => b.podilProcent - a.podilProcent);
         if (vsichni.length === 0) return '';
 
         const barvy = vsichni.map((_, i) => `hsl(${Math.round((i * 360) / vsichni.length)}, 65%, 55%)`);
@@ -572,7 +596,7 @@
                 </div>
             </div>
 
-            ${vykresliGrafVyroby(data.stali, data.vypomoc)}
+            ${vykresliGrafVyroby(data.stali, data.vypomocSouhrn)}
 
             <div class="sekce-nadpis">👷 Stálí zaměstnanci</div>
             <div class="prehled-karta">
@@ -593,6 +617,14 @@
             </div>
 
             <div class="sekce-nadpis">🤝 Výpomoc</div>
+            ${data.vypomocSouhrn ? `
+            <div class="prehled-karta vypomoc-souhrn-karta">
+                <div class="souhrn-grid">
+                    <div class="souhrn-karta"><span class="val">${data.vypomocSouhrn.pocetLidi}</span><span class="lbl">Počet lidí ve výpomoci</span></div>
+                    <div class="souhrn-karta"><span class="val">${formatCislo(data.vypomocSouhrn.podilProcent, 1)}%</span><span class="lbl">Podíl na výrobě celkem</span></div>
+                    <div class="souhrn-karta"><span class="val">${formatCislo(data.vypomocSouhrn.ksNaVP, 1)}</span><span class="lbl">Počet ks / VP (celkem)</span></div>
+                </div>
+            </div>` : ''}
             <div class="prehled-karta">
                 ${data.vypomoc.length > 0 ? `
                 <table class="prehled-table">
