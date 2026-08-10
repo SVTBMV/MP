@@ -58,6 +58,33 @@
         table.prehled-table td.zvyrazneno { color: var(--accent); font-weight: 800; }
         .vypomoc-souhrn-karta { border-color: rgba(56, 189, 248, 0.35); margin-bottom: 12px; }
 
+        .prehled-hlavicka-s-tlacitkem { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+        .tisk-btn { background: var(--card); border: 2px solid var(--accent); color: var(--accent); font-weight: bold; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; }
+        .tisk-btn:hover { background: var(--accent); color: #000; }
+
+        /* --- Tiskový výstup (skrytý, zobrazí se jen při tisku) --- */
+        #tisk-oblast { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            #tisk-oblast, #tisk-oblast * { visibility: visible; }
+            #tisk-oblast { display: block; position: absolute; top: 0; left: 0; width: 100%; }
+            .tisk-stranka { page-break-after: always; background: #fff; color: #111; padding: 15mm; box-sizing: border-box; min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
+            .tisk-stranka:last-child { page-break-after: auto; }
+        }
+        .tisk-stranka h2 { text-align: center; font-size: 1.4rem; margin-bottom: 4px; }
+        .tisk-stranka .tisk-podtitul { text-align: center; color: #555; margin-bottom: 20px; font-size: 0.95rem; }
+        table.tisk-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        table.tisk-table th, table.tisk-table td { border: 1px solid #999; padding: 6px 10px; text-align: center; font-size: 0.85rem; }
+        table.tisk-table th { background: #e2e8f0; font-weight: 700; }
+        table.tisk-table td.prazdne-tisk { color: #999; }
+        .tisk-souhrn { width: 100%; border-collapse: collapse; }
+        .tisk-souhrn td { padding: 5px 10px; font-size: 0.9rem; border: none; }
+        .tisk-souhrn td.lbl-tisk { color: #444; }
+        .tisk-souhrn td.val-tisk { font-weight: 800; text-align: right; }
+        .tisk-kolac-obal { position: relative; width: 460px; height: 460px; margin: 10px auto 30px; }
+        .tisk-kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px #999; }
+        .tisk-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 0.72rem; font-weight: 800; color: #111; background: rgba(255,255,255,0.92); padding: 2px 7px; border-radius: 7px; border: 1px solid #999; white-space: nowrap; }
+
         .kolac-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; }
         .kolac-obal { position: relative; width: min(900px, 100%); aspect-ratio: 1 / 1; }
         .kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px var(--border); }
@@ -577,7 +604,94 @@
             </div>`;
     }
 
+    let aktualniReportKlic = null;
+    let aktualniReportData = null;
+
+    // --- Tiskový výstup (dvě stránky, jen osobní čísla - nikdy jména) ---
+    function pripravitTisk() {
+        if (!aktualniReportData) return;
+        const data = aktualniReportData;
+        const klic = aktualniReportKlic;
+
+        // Stránka 1: tabulka - stálí i výpomoc jednotlivě, seřazeno dle podílu na výrobě
+        const vsichniProTabulku = [...data.stali, ...data.vypomoc];
+        const radkyTisk = vsichniProTabulku.map(p => {
+            const vykonBunka = (p.vykonProcent !== null && p.vykonProcent !== undefined)
+                ? `<td>${formatCislo(p.vykonProcent, 1)}%</td>`
+                : `<td class="prazdne-tisk">—</td>`;
+            const neshodyBunka = (p.neshody !== undefined)
+                ? `<td>${formatCislo(p.neshody, 0)}</td>`
+                : `<td class="prazdne-tisk">—</td>`;
+            return `
+                <tr>
+                    <td>${p.osCislo}</td>
+                    ${vykonBunka}
+                    <td>${formatCislo(p.podilProcent, 1)}%</td>
+                    <td>${formatCislo(p.ksNaVP, 1)}</td>
+                    ${neshodyBunka}
+                </tr>`;
+        }).join('');
+
+        const stranka1 = `
+            <div class="tisk-stranka">
+                <h2>Přehled výroby — ${nazevMesiceCZ(klic)}</h2>
+                <div class="tisk-podtitul">Souhrn výkonů dle osobních čísel</div>
+                <table class="tisk-table">
+                    <thead>
+                        <tr>
+                            <th>Osobní číslo</th>
+                            <th>Výkon %</th>
+                            <th>Podíl na výrobě %</th>
+                            <th>Počet ks / VP</th>
+                            <th>Počet neshod</th>
+                        </tr>
+                    </thead>
+                    <tbody>${radkyTisk}</tbody>
+                </table>
+                <table class="tisk-souhrn">
+                    <tr><td class="lbl-tisk">Celkem odvedeno minut</td><td class="val-tisk">${formatCislo(data.celkemCasVsech, 0)}</td></tr>
+                    <tr><td class="lbl-tisk">Celkem vyrobeno kusů</td><td class="val-tisk">${formatCislo(data.celkemKusuVsech, 0)}</td></tr>
+                    <tr><td class="lbl-tisk">Průměr kusů na VP</td><td class="val-tisk">${formatCislo(data.prumerKsNaVP, 1)}</td></tr>
+                    <tr><td class="lbl-tisk">Počet neshod TB</td><td class="val-tisk">${data.pocetNeshodCelkem !== null ? formatCislo(data.pocetNeshodCelkem, 0) : '—'}</td></tr>
+                    <tr><td class="lbl-tisk">Cena neshod TB celkem</td><td class="val-tisk">${data.cenaNeshodCelkem !== null ? formatKc(data.cenaNeshodCelkem) : '—'}</td></tr>
+                </table>
+            </div>`;
+
+        // Stránka 2: graf - každý jednotlivě, označen jen osobním číslem
+        const vsichniProGraf = [...data.stali, ...data.vypomoc].sort((a, b) => b.podilProcent - a.podilProcent);
+        const barvy = vsichniProGraf.map((_, i) => `hsl(${Math.round((i * 360) / vsichniProGraf.length)}, 65%, 50%)`);
+
+        let kumulativni = 0;
+        const segmenty = [];
+        const stitky = [];
+        vsichniProGraf.forEach((p, i) => {
+            const start = kumulativni;
+            kumulativni += p.podilProcent;
+            segmenty.push(`${barvy[i]} ${start}% ${kumulativni}%`);
+            const stred = (start + kumulativni) / 2;
+            const uhelRad = (stred * 3.6 - 90) * (Math.PI / 180);
+            const x = 50 + 34 * Math.cos(uhelRad);
+            const y = 50 + 34 * Math.sin(uhelRad);
+            stitky.push(`<div class="tisk-stitek" style="left:${x}%; top:${y}%;">${p.osCislo}</div>`);
+        });
+
+        const stranka2 = `
+            <div class="tisk-stranka">
+                <h2>Podíl na výrobě — ${nazevMesiceCZ(klic)}</h2>
+                <div class="tisk-podtitul">Dle osobních čísel</div>
+                <div class="tisk-kolac-obal">
+                    <div class="tisk-kolac" style="background: conic-gradient(${segmenty.join(', ')});"></div>
+                    ${stitky.join('')}
+                </div>
+            </div>`;
+
+        document.getElementById('tisk-oblast').innerHTML = stranka1 + stranka2;
+        window.print();
+    }
+
     function vykresliReport(klic, data) {
+        aktualniReportKlic = klic;
+        aktualniReportData = data;
         const reportApp = document.getElementById('report-app');
 
         const staliHtml = data.stali.map(p => radekTabulky(p, true)).join('');
@@ -585,8 +699,13 @@
 
         reportApp.innerHTML = `
             <div class="prehled-karta">
-                <div class="prehled-nadpis">📋 ${nazevMesiceCZ(klic)}</div>
-                <div class="prehled-podnadpis">Souhrnný přehled výkonů, neshod a docházky</div>
+                <div class="prehled-hlavicka-s-tlacitkem">
+                    <div>
+                        <div class="prehled-nadpis">📋 ${nazevMesiceCZ(klic)}</div>
+                        <div class="prehled-podnadpis">Souhrnný přehled výkonů, neshod a docházky</div>
+                    </div>
+                    <button class="tisk-btn" onclick="pripravitTisk()">🖨 Tisk pro nástěnku</button>
+                </div>
                 <div class="souhrn-grid">
                     <div class="souhrn-karta"><span class="val">${formatCislo(data.celkemCasVsech, 0)}</span><span class="lbl">Celkem odvedeno minut</span></div>
                     <div class="souhrn-karta"><span class="val">${formatCislo(data.celkemKusuVsech, 0)}</span><span class="lbl">Celkem vyrobeno kusů</span></div>
@@ -643,6 +762,8 @@
             </div>`;
     }
 </script>
+
+<div id="tisk-oblast"></div>
 
 </body>
 </html>
