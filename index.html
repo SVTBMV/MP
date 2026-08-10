@@ -61,7 +61,7 @@
         .kolac-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; }
         .kolac-obal { position: relative; width: min(900px, 100%); aspect-ratio: 1 / 1; }
         .kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px var(--border); }
-        .kolac-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 1rem; font-weight: 800; color: #0f172a; background: rgba(255,255,255,0.85); padding: 4px 11px; border-radius: 9px; white-space: nowrap; pointer-events: none; }
+        .kolac-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 0.72rem; font-weight: 800; color: #0f172a; background: rgba(255,255,255,0.9); padding: 2px 7px; border-radius: 7px; white-space: nowrap; pointer-events: none; }
         .kolac-legenda { width: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 20px; }
         .legenda-radek { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
         .legenda-barva { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
@@ -470,7 +470,7 @@
                         neshody: ruceniInfo.neshody, dochazka: ruceniInfo.dochazka
                     });
                 } else {
-                    vypomoc.push({ osCislo, jmeno: o.jmeno, podilProcent, ksNaVP });
+                    vypomoc.push({ osCislo, jmeno: o.jmeno, podilProcent, ksNaVP, casCelkem: o.casCelkem });
                 }
             });
 
@@ -512,9 +512,11 @@
     }
 
     function radekTabulky(polozka, jeStaly) {
-        const vykonBunka = (jeStaly && polozka.vykonProcent !== null && polozka.vykonProcent !== undefined)
-            ? `<td class="zvyrazneno">${formatCislo(polozka.vykonProcent, 1)}%</td>`
-            : `<td class="prazdne">—</td>`;
+        const vykonBunka = jeStaly
+            ? (polozka.vykonProcent !== null && polozka.vykonProcent !== undefined
+                ? `<td class="zvyrazneno">${formatCislo(polozka.vykonProcent, 1)}%</td>`
+                : `<td class="prazdne">—</td>`)
+            : `<td class="zvyrazneno">${formatCislo(polozka.casCelkem, 0)} min</td>`;
         const neshodyBunka = (jeStaly && polozka.neshody !== undefined)
             ? `<td>${formatCislo(polozka.neshody, 0)}</td>`
             : `<td class="prazdne">—</td>`;
@@ -547,14 +549,12 @@
             kumulativni += p.podilProcent;
             segmentyGradient.push(`${barvy[i]} ${start}% ${kumulativni}%`);
 
-            // Popisek přímo na výseči jen u dost velkých podílů, aby se text nemačkal
-            if (p.podilProcent >= 6) {
-                const stredProcenta = (start + kumulativni) / 2;
-                const uhelRad = (stredProcenta * 3.6 - 90) * (Math.PI / 180);
-                const x = 50 + 32 * Math.cos(uhelRad);
-                const y = 50 + 32 * Math.sin(uhelRad);
-                stitky.push(`<div class="kolac-stitek" style="left:${x}%; top:${y}%;">${p.jmeno.split(' ')[0]}</div>`);
-            }
+            // Popisek na výseči - zobrazit u všech
+            const stredProcenta = (start + kumulativni) / 2;
+            const uhelRad = (stredProcenta * 3.6 - 90) * (Math.PI / 180);
+            const x = 50 + 32 * Math.cos(uhelRad);
+            const y = 50 + 32 * Math.sin(uhelRad);
+            stitky.push(`<div class="kolac-stitek" style="left:${x}%; top:${y}%;">${p.jmeno.split(' ')[0]}</div>`);
         });
 
         const legenda = vsichni.map((p, i) => `
@@ -632,7 +632,7 @@
                         <tr>
                             <th style="text-align:left;">Jméno</th>
                             <th>Osobní číslo</th>
-                            <th>Výkon %</th>
+                            <th>Odvedené minuty</th>
                             <th>Podíl na výrobě %</th>
                             <th>Počet ks / VP</th>
                             <th>Počet neshod</th>
