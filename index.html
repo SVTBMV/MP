@@ -62,6 +62,38 @@
         .tisk-btn { background: var(--card); border: 2px solid var(--accent); color: var(--accent); font-weight: bold; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; }
         .tisk-btn:hover { background: var(--accent); color: #000; }
 
+        .hlavni-menu { display: flex; gap: 12px; margin-bottom: 28px; }
+        .hlavni-tab { flex: 1; text-align: center; background: var(--card); border: 2px solid var(--border); border-radius: 12px; padding: 14px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: all 0.2s; }
+        .hlavni-tab:hover { border-color: var(--accent); background: #2d3a6d; }
+        .hlavni-tab.active { border-color: var(--accent); background: var(--accent); color: #000; }
+
+        .mesic-prehled-hlavicka { display: flex; justify-content: space-between; padding: 6px 0 10px; border-bottom: 2px solid var(--border); margin-bottom: 6px; }
+        .mesic-prehled-hlavicka .mesic-prehled-hodnoty span { color: var(--accent); text-transform: uppercase; font-size: 0.7rem; font-weight: 700; }
+        .mesic-prehled-radek { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .mesic-prehled-radek:last-child { border-bottom: none; }
+        .mesic-prehled-nazev { font-weight: 700; color: #fff; min-width: 110px; }
+        .mesic-prehled-hodnoty { display: flex; gap: 22px; flex-wrap: wrap; font-size: 0.85rem; color: #cbd5e1; }
+        .mesic-prehled-hodnoty span { min-width: 80px; text-align: right; }
+
+        .trend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+        .trend-graf-karta { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; cursor: pointer; transition: border-color 0.2s; }
+        .trend-graf-karta:hover { border-color: var(--accent); }
+        .trend-graf-nadpis { font-weight: 700; color: #fff; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.92rem; }
+        .trend-svg { width: 100%; height: auto; display: block; }
+        .trend-graf-rozsah { display: flex; justify-content: space-between; font-size: 0.7rem; color: #64748b; margin-top: 4px; }
+        .trend-sipka { font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; }
+        .trend-sipka.trend-dobry { color: var(--success); background: rgba(34, 197, 94, 0.12); }
+        .trend-sipka.trend-spatny { color: var(--error); background: rgba(239, 68, 68, 0.12); }
+        .trend-sipka.trend-stabilni { color: #94a3b8; background: rgba(148, 163, 184, 0.12); }
+
+        .graf-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        .graf-modal-overlay.open { display: flex; }
+        .graf-modal-obsah { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; max-width: 1100px; width: 100%; }
+        .graf-modal-hlavicka { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .graf-modal-nadpis { font-size: 1.2rem; font-weight: 800; color: #fff; display: flex; gap: 12px; align-items: center; }
+        .graf-modal-zavrit { background: none; border: 1px solid var(--border); color: white; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .graf-modal-zavrit:hover { border-color: var(--error); color: var(--error); }
+
         /* --- Tiskový výstup (skrytý, zobrazí se jen při tisku) --- */
         #tisk-oblast { display: none; }
         @media print {
@@ -298,6 +330,10 @@
         });
     }
 
+    function serazenoVzestupne(seznam) {
+        return [...serazenoSestupne(seznam)].reverse();
+    }
+
     async function ziskatOtisknMesice(klic) {
         const vysledek = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
         return { vysledek, otisk: JSON.stringify(vysledek.dataRows) };
@@ -343,6 +379,7 @@
             errorEl.textContent = '';
             seznam.push(klic);
             ulozitSeznamMesicu(seznam);
+            celkemNacteno = false;
             input.value = '';
             vykresliVyberMesicu();
             vybratMesic(klic);
@@ -358,6 +395,7 @@
         event.stopPropagation();
         let seznam = nacistSeznamMesicu().filter(m => m !== klic);
         ulozitSeznamMesicu(seznam);
+        celkemNacteno = false;
         vykresliVyberMesicu();
         const dalsi = serazenoSestupne(seznam);
         if (dalsi.length > 0) vybratMesic(dalsi[0]);
@@ -378,19 +416,38 @@
     function zahajitNacitaniMesicu() {
         const app = document.getElementById('app');
         app.innerHTML = `
-            <div class="pridat-mesic-box">
-                <input type="text" id="novy-mesic-input" placeholder="MM-RRRR, např. 03-2026" onkeydown="if(event.key==='Enter') pridatMesic()">
-                <button id="pridat-mesic-tlacitko" onclick="pridatMesic()">+ Přidat měsíc</button>
+            <div class="hlavni-menu">
+                <div class="hlavni-tab active" id="tab-mesicne" onclick="prepnoutHlavniTab('mesicne')">📅 Měsíčně</div>
+                <div class="hlavni-tab" id="tab-celkem" onclick="prepnoutHlavniTab('celkem')">📊 Celkem</div>
             </div>
-            <div class="login-error" id="novy-mesic-error"></div>
-            <div class="mesice-grid" id="mesice-grid"></div>
-            <div id="report-app"></div>`;
+            <div id="mesicne-obsah">
+                <div class="pridat-mesic-box">
+                    <input type="text" id="novy-mesic-input" placeholder="MM-RRRR, např. 03-2026" onkeydown="if(event.key==='Enter') pridatMesic()">
+                    <button id="pridat-mesic-tlacitko" onclick="pridatMesic()">+ Přidat měsíc</button>
+                </div>
+                <div class="login-error" id="novy-mesic-error"></div>
+                <div class="mesice-grid" id="mesice-grid"></div>
+                <div id="report-app"></div>
+            </div>
+            <div id="celkem-obsah" style="display:none;"></div>`;
 
         vykresliVyberMesicu();
 
         const seznam = serazenoSestupne(nacistSeznamMesicu());
         if (seznam.length > 0) vybratMesic(seznam[0]);
         else document.getElementById('report-app').innerHTML = `<div class="status-msg">Přidejte měsíc, který chcete zobrazit.</div>`;
+    }
+
+    let celkemNacteno = false;
+
+    function prepnoutHlavniTab(tab) {
+        document.getElementById('tab-mesicne').classList.toggle('active', tab === 'mesicne');
+        document.getElementById('tab-celkem').classList.toggle('active', tab === 'celkem');
+        document.getElementById('mesicne-obsah').style.display = tab === 'mesicne' ? 'block' : 'none';
+        document.getElementById('celkem-obsah').style.display = tab === 'celkem' ? 'block' : 'none';
+        if (tab === 'celkem' && !celkemNacteno) {
+            nacistCelkovyPrehled();
+        }
     }
 
     function vybratMesic(klic) {
@@ -401,146 +458,390 @@
     }
 
     // --- Načtení a zpracování dat konkrétního měsíce ---
+    async function zpracovatMesic(klic) {
+        const dataList = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
+
+        const dIdx = detekovatSloupceData(dataList.headerRow);
+        if (dIdx.idxCas === -1 || dIdx.idxJmeno === -1 || dIdx.idxOsCislo === -1) {
+            throw new Error('V tabulce Data se nepodařilo najít potřebné sloupce (Čas plánovaný skutečný / Celé jméno / Práci provedl). Zkontrolujte přesné názvy hlaviček.');
+        }
+
+        const osoby = {}; // osCislo -> {jmeno, casCelkem, kusyCelkem, vyrobniPrikazy:Set}
+        let celkemCasVsech = 0;
+        let celkemKusuVsech = 0;
+        const vsechnyVyrobniPrikazy = new Set();
+
+        dataList.dataRows.forEach(cols => {
+            const cas = parseCislo(cols[dIdx.idxCas]);
+            const jmeno = ocistitBunku(cols[dIdx.idxJmeno]);
+            const osCislo = ocistitBunku(cols[dIdx.idxOsCislo]);
+            const mnozstvi = dIdx.idxMnozstvi !== -1 ? parseCislo(cols[dIdx.idxMnozstvi]) : 0;
+            const vp = dIdx.idxVyrobniPrikaz !== -1 ? ocistitBunku(cols[dIdx.idxVyrobniPrikaz]) : '';
+            if (!osCislo || !jmeno) return;
+
+            if (!osoby[osCislo]) osoby[osCislo] = { jmeno, casCelkem: 0, kusyCelkem: 0, vyrobniPrikazy: new Set() };
+            osoby[osCislo].casCelkem += cas;
+            osoby[osCislo].kusyCelkem += mnozstvi;
+            if (vp) osoby[osCislo].vyrobniPrikazy.add(vp);
+
+            celkemCasVsech += cas;
+            celkemKusuVsech += mnozstvi;
+            if (vp) vsechnyVyrobniPrikazy.add(vp);
+        });
+
+        if (Object.keys(osoby).length === 0) {
+            throw new Error(`List "${klic}" v tabulce Data neobsahuje žádné platné řádky.`);
+        }
+
+        // --- Zpracování tabulky Režie (jen lidé, kteří jsou v tabulce Data) ---
+        const rezieMap = {}; // osCislo -> minuty
+        try {
+            const rezieList = await nacistListGviz(REZIE_DOC_ID, klic, 'Režie');
+            const rIdx = detekovatSloupceRezie(rezieList.headerRow);
+            if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
+                rezieList.dataRows.forEach(cols => {
+                    const osCislo = ocistitBunku(cols[rIdx.idxOsCislo]);
+                    if (!osCislo || !osoby[osCislo]) return; // jen lidé z první tabulky
+                    const cas = parseCislo(cols[rIdx.idxCas]);
+                    rezieMap[osCislo] = (rezieMap[osCislo] || 0) + cas;
+                });
+            }
+        } catch (e) {
+            // List Režie pro tento měsíc nejde načíst - pokračujeme bez režií (0)
+        }
+
+        // --- Zpracování ručně doplňované tabulky (stálí zaměstnanci) ---
+        const ruceniMap = {}; // normalizovane jmeno -> {dochazka, neshody}
+        let pocetNeshodCelkem = null;
+        let cenaNeshodCelkem = null;
+        try {
+            const ruceniList = await nacistListGviz(RUCNI_DOC_ID, klic, 'Ručně doplňovaná data');
+            ruceniList.dataRows.forEach(cols => {
+                const jmeno = ocistitBunku(cols[0]);
+                if (!jmeno) return;
+                const dochazka = parseCislo(cols[1]);
+                const neshody = parseCislo(cols[2]);
+                const neshodyCelkemRaw = ocistitBunku(cols[4]);
+                const cenaRaw = ocistitBunku(cols[5]);
+
+                ruceniMap[normalizovatText(jmeno)] = { dochazka, neshody };
+
+                if (pocetNeshodCelkem === null && neshodyCelkemRaw !== '') pocetNeshodCelkem = parseCislo(neshodyCelkemRaw);
+                if (cenaNeshodCelkem === null && cenaRaw !== '') cenaNeshodCelkem = parseCislo(cenaRaw);
+            });
+        } catch (e) {
+            // List s ručními daty pro tento měsíc nejde načíst - pokračujeme bez něj
+        }
+
+        // --- Sestavení výsledných řádků ---
+        const stali = [];
+        const vypomoc = [];
+
+        Object.keys(osoby).forEach(osCislo => {
+            const o = osoby[osCislo];
+            const rezie = rezieMap[osCislo] || 0;
+            const podilProcent = celkemCasVsech > 0 ? (o.casCelkem / celkemCasVsech) * 100 : 0;
+            const pocetVP = o.vyrobniPrikazy.size;
+            const ksNaVP = pocetVP > 0 ? o.kusyCelkem / pocetVP : 0;
+
+            const ruceniInfo = ruceniMap[normalizovatText(o.jmeno)];
+
+            if (ruceniInfo) {
+                const vykonProcent = ruceniInfo.dochazka > 0
+                    ? ((o.casCelkem + rezie) / (ruceniInfo.dochazka * 60)) * 100
+                    : null;
+                stali.push({
+                    osCislo, jmeno: o.jmeno, vykonProcent, podilProcent, ksNaVP,
+                    neshody: ruceniInfo.neshody, dochazka: ruceniInfo.dochazka
+                });
+            } else {
+                vypomoc.push({ osCislo, jmeno: o.jmeno, podilProcent, ksNaVP, casCelkem: o.casCelkem });
+            }
+        });
+
+        stali.sort((a, b) => b.podilProcent - a.podilProcent);
+        vypomoc.sort((a, b) => b.podilProcent - a.podilProcent);
+
+        // Souhrn všech "výpomoc" dohromady jako jedna položka
+        let vypomocSouhrn = null;
+        if (vypomoc.length > 0) {
+            let vypomocCas = 0;
+            let vypomocKusy = 0;
+            const vypomocVP = new Set();
+            Object.keys(osoby).forEach(osCislo => {
+                if (!ruceniMap[normalizovatText(osoby[osCislo].jmeno)]) {
+                    vypomocCas += osoby[osCislo].casCelkem;
+                    vypomocKusy += osoby[osCislo].kusyCelkem;
+                    osoby[osCislo].vyrobniPrikazy.forEach(vp => vypomocVP.add(vp));
+                }
+            });
+            vypomocSouhrn = {
+                jmeno: 'Výpomoc celkem',
+                pocetLidi: vypomoc.length,
+                podilProcent: celkemCasVsech > 0 ? (vypomocCas / celkemCasVsech) * 100 : 0,
+                ksNaVP: vypomocVP.size > 0 ? vypomocKusy / vypomocVP.size : 0
+            };
+        }
+
+        const prumerKsNaVP = vsechnyVyrobniPrikazy.size > 0 ? celkemKusuVsech / vsechnyVyrobniPrikazy.size : 0;
+
+        return {
+            celkemCasVsech, celkemKusuVsech, prumerKsNaVP,
+            pocetNeshodCelkem, cenaNeshodCelkem,
+            stali, vypomoc, vypomocSouhrn
+        };
+    }
+
     async function nacistMesic(klic) {
         const reportApp = document.getElementById('report-app');
         reportApp.innerHTML = `<div class="status-msg">Načítám data za ${nazevMesiceCZ(klic)}...</div>`;
 
         try {
-            const dataList = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
-
-            const dIdx = detekovatSloupceData(dataList.headerRow);
-            if (dIdx.idxCas === -1 || dIdx.idxJmeno === -1 || dIdx.idxOsCislo === -1) {
-                throw new Error('V tabulce Data se nepodařilo najít potřebné sloupce (Čas plánovaný skutečný / Celé jméno / Práci provedl). Zkontrolujte přesné názvy hlaviček.');
-            }
-
-            const osoby = {}; // osCislo -> {jmeno, casCelkem, kusyCelkem, vyrobniPrikazy:Set}
-            let celkemCasVsech = 0;
-            let celkemKusuVsech = 0;
-            const vsechnyVyrobniPrikazy = new Set();
-
-            dataList.dataRows.forEach(cols => {
-                const cas = parseCislo(cols[dIdx.idxCas]);
-                const jmeno = ocistitBunku(cols[dIdx.idxJmeno]);
-                const osCislo = ocistitBunku(cols[dIdx.idxOsCislo]);
-                const mnozstvi = dIdx.idxMnozstvi !== -1 ? parseCislo(cols[dIdx.idxMnozstvi]) : 0;
-                const vp = dIdx.idxVyrobniPrikaz !== -1 ? ocistitBunku(cols[dIdx.idxVyrobniPrikaz]) : '';
-                if (!osCislo || !jmeno) return;
-
-                if (!osoby[osCislo]) osoby[osCislo] = { jmeno, casCelkem: 0, kusyCelkem: 0, vyrobniPrikazy: new Set() };
-                osoby[osCislo].casCelkem += cas;
-                osoby[osCislo].kusyCelkem += mnozstvi;
-                if (vp) osoby[osCislo].vyrobniPrikazy.add(vp);
-
-                celkemCasVsech += cas;
-                celkemKusuVsech += mnozstvi;
-                if (vp) vsechnyVyrobniPrikazy.add(vp);
-            });
-
-            if (Object.keys(osoby).length === 0) {
-                throw new Error(`List "${klic}" v tabulce Data neobsahuje žádné platné řádky.`);
-            }
-
-            // --- Zpracování tabulky Režie (jen lidé, kteří jsou v tabulce Data) ---
-            const rezieMap = {}; // osCislo -> minuty
-            try {
-                const rezieList = await nacistListGviz(REZIE_DOC_ID, klic, 'Režie');
-                const rIdx = detekovatSloupceRezie(rezieList.headerRow);
-                if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
-                    rezieList.dataRows.forEach(cols => {
-                        const osCislo = ocistitBunku(cols[rIdx.idxOsCislo]);
-                        if (!osCislo || !osoby[osCislo]) return; // jen lidé z první tabulky
-                        const cas = parseCislo(cols[rIdx.idxCas]);
-                        rezieMap[osCislo] = (rezieMap[osCislo] || 0) + cas;
-                    });
-                }
-            } catch (e) {
-                // List Režie pro tento měsíc nejde načíst - pokračujeme bez režií (0)
-            }
-
-            // --- Zpracování ručně doplňované tabulky (stálí zaměstnanci) ---
-            const ruceniMap = {}; // normalizovane jmeno -> {dochazka, neshody}
-            let pocetNeshodCelkem = null;
-            let cenaNeshodCelkem = null;
-            try {
-                const ruceniList = await nacistListGviz(RUCNI_DOC_ID, klic, 'Ručně doplňovaná data');
-                ruceniList.dataRows.forEach(cols => {
-                    const jmeno = ocistitBunku(cols[0]);
-                    if (!jmeno) return;
-                    const dochazka = parseCislo(cols[1]);
-                    const neshody = parseCislo(cols[2]);
-                    const neshodyCelkemRaw = ocistitBunku(cols[4]);
-                    const cenaRaw = ocistitBunku(cols[5]);
-
-                    ruceniMap[normalizovatText(jmeno)] = { dochazka, neshody };
-
-                    if (pocetNeshodCelkem === null && neshodyCelkemRaw !== '') pocetNeshodCelkem = parseCislo(neshodyCelkemRaw);
-                    if (cenaNeshodCelkem === null && cenaRaw !== '') cenaNeshodCelkem = parseCislo(cenaRaw);
-                });
-            } catch (e) {
-                // List s ručními daty pro tento měsíc nejde načíst - pokračujeme bez něj
-            }
-
-            // --- Sestavení výsledných řádků ---
-            const stali = [];
-            const vypomoc = [];
-
-            Object.keys(osoby).forEach(osCislo => {
-                const o = osoby[osCislo];
-                const rezie = rezieMap[osCislo] || 0;
-                const podilProcent = celkemCasVsech > 0 ? (o.casCelkem / celkemCasVsech) * 100 : 0;
-                const pocetVP = o.vyrobniPrikazy.size;
-                const ksNaVP = pocetVP > 0 ? o.kusyCelkem / pocetVP : 0;
-
-                const ruceniInfo = ruceniMap[normalizovatText(o.jmeno)];
-
-                if (ruceniInfo) {
-                    const vykonProcent = ruceniInfo.dochazka > 0
-                        ? ((o.casCelkem + rezie) / (ruceniInfo.dochazka * 60)) * 100
-                        : null;
-                    stali.push({
-                        osCislo, jmeno: o.jmeno, vykonProcent, podilProcent, ksNaVP,
-                        neshody: ruceniInfo.neshody, dochazka: ruceniInfo.dochazka
-                    });
-                } else {
-                    vypomoc.push({ osCislo, jmeno: o.jmeno, podilProcent, ksNaVP, casCelkem: o.casCelkem });
-                }
-            });
-
-            stali.sort((a, b) => b.podilProcent - a.podilProcent);
-            vypomoc.sort((a, b) => b.podilProcent - a.podilProcent);
-
-            // Souhrn všech "výpomoc" dohromady jako jedna položka
-            let vypomocSouhrn = null;
-            if (vypomoc.length > 0) {
-                let vypomocCas = 0;
-                let vypomocKusy = 0;
-                const vypomocVP = new Set();
-                Object.keys(osoby).forEach(osCislo => {
-                    if (!ruceniMap[normalizovatText(osoby[osCislo].jmeno)]) {
-                        vypomocCas += osoby[osCislo].casCelkem;
-                        vypomocKusy += osoby[osCislo].kusyCelkem;
-                        osoby[osCislo].vyrobniPrikazy.forEach(vp => vypomocVP.add(vp));
-                    }
-                });
-                vypomocSouhrn = {
-                    jmeno: 'Výpomoc celkem',
-                    pocetLidi: vypomoc.length,
-                    podilProcent: celkemCasVsech > 0 ? (vypomocCas / celkemCasVsech) * 100 : 0,
-                    ksNaVP: vypomocVP.size > 0 ? vypomocKusy / vypomocVP.size : 0
-                };
-            }
-
-            const prumerKsNaVP = vsechnyVyrobniPrikazy.size > 0 ? celkemKusuVsech / vsechnyVyrobniPrikazy.size : 0;
-
-            vykresliReport(klic, {
-                celkemCasVsech, celkemKusuVsech, prumerKsNaVP,
-                pocetNeshodCelkem, cenaNeshodCelkem,
-                stali, vypomoc, vypomocSouhrn
-            });
-
+            const data = await zpracovatMesic(klic);
+            vykresliReport(klic, data);
         } catch (e) {
             reportApp.innerHTML = `<div class="msg red" style="display:block">Chyba při zpracování dat za ${nazevMesiceCZ(klic)}: ${e.message}</div>`;
         }
+    }
+
+    // ============ CELKOVÝ PŘEHLED (všechny měsíce dohromady) ============
+
+    async function nacistCelkovyPrehled() {
+        const obsah = document.getElementById('celkem-obsah');
+        obsah.innerHTML = `<div class="status-msg">Načítám všechny měsíce, může to chvíli trvat...</div>`;
+
+        const seznamVzestupne = serazenoVzestupne(nacistSeznamMesicu());
+        if (seznamVzestupne.length === 0) {
+            obsah.innerHTML = `<div class="status-msg">Zatím nemáte přidaný žádný měsíc (přidejte ho v záložce Měsíčně).</div>`;
+            return;
+        }
+
+        const vysledky = [];
+        for (const klic of seznamVzestupne) {
+            try {
+                const data = await zpracovatMesic(klic);
+                vysledky.push({ klic, data });
+            } catch (e) {
+                // měsíc, který se nepodaří načíst, v celkovém přehledu jen přeskočíme
+            }
+        }
+
+        if (vysledky.length === 0) {
+            obsah.innerHTML = `<div class="msg red" style="display:block">Nepodařilo se načíst žádný měsíc.</div>`;
+            return;
+        }
+
+        celkemNacteno = true;
+        vykresliCelkovyPrehled(vysledky);
+    }
+
+    function prumerPole(pole) {
+        const platne = pole.filter(v => v !== null && v !== undefined && !isNaN(v));
+        if (platne.length === 0) return null;
+        return platne.reduce((a, b) => a + b, 0) / platne.length;
+    }
+
+    function vykresliCelkovyPrehled(vysledky) {
+        const obsah = document.getElementById('celkem-obsah');
+
+        const avgCas = prumerPole(vysledky.map(v => v.data.celkemCasVsech));
+        const avgKusy = prumerPole(vysledky.map(v => v.data.celkemKusuVsech));
+        const avgKsNaVp = prumerPole(vysledky.map(v => v.data.prumerKsNaVP));
+        const avgNeshody = prumerPole(vysledky.map(v => v.data.pocetNeshodCelkem));
+        const avgCena = prumerPole(vysledky.map(v => v.data.cenaNeshodCelkem));
+
+        // --- Seznam měsíců, od Ledna nahoře po nejaktuálnější dole ---
+        const radkyMesicu = vysledky.map(v => `
+            <div class="mesic-prehled-radek">
+                <div class="mesic-prehled-nazev">${nazevMesiceCZ(v.klic)}</div>
+                <div class="mesic-prehled-hodnoty">
+                    <span>${formatCislo(v.data.celkemCasVsech, 0)} min</span>
+                    <span>${formatCislo(v.data.celkemKusuVsech, 0)} ks</span>
+                    <span>${formatCislo(v.data.prumerKsNaVP, 1)} ks/VP</span>
+                    <span>${v.data.pocetNeshodCelkem !== null ? formatCislo(v.data.pocetNeshodCelkem, 0) : '—'} neshod</span>
+                    <span>${v.data.cenaNeshodCelkem !== null ? formatKc(v.data.cenaNeshodCelkem) : '—'}</span>
+                </div>
+            </div>`).join('');
+
+        // --- Trendové grafy ---
+        const mesiceLabely = vysledky.map(v => nazevMesiceCZ(v.klic));
+        globalniTrendData = {
+            cas: { nazev: 'Celkem odvedeno minut', hodnoty: vysledky.map(v => v.data.celkemCasVsech), mesiceLabely, viceJeLepsi: true },
+            kusy: { nazev: 'Celkem vyrobeno kusů', hodnoty: vysledky.map(v => v.data.celkemKusuVsech), mesiceLabely, viceJeLepsi: true },
+            ksnavp: { nazev: 'Průměr kusů na VP', hodnoty: vysledky.map(v => v.data.prumerKsNaVP), mesiceLabely, viceJeLepsi: true },
+            neshody: { nazev: 'Počet neshod TB', hodnoty: vysledky.map(v => v.data.pocetNeshodCelkem), mesiceLabely, viceJeLepsi: false },
+            cena: { nazev: 'Cena neshod TB celkem', hodnoty: vysledky.map(v => v.data.cenaNeshodCelkem), mesiceLabely, viceJeLepsi: false }
+        };
+
+        const grafyHtml = Object.keys(globalniTrendData).map(id => vykresliTrendKartu(id)).join('');
+
+        // --- Průměry jednotlivců napříč měsíci ---
+        const lideMap = {}; // osCislo -> {jmeno, vykon:[], podil:[], ks:[], neshody:[]}
+        vysledky.forEach(v => {
+            v.data.stali.forEach(p => {
+                if (!lideMap[p.osCislo]) lideMap[p.osCislo] = { jmeno: p.jmeno, vykon: [], podil: [], ks: [], neshody: [] };
+                lideMap[p.osCislo].jmeno = p.jmeno;
+                if (p.vykonProcent !== null && p.vykonProcent !== undefined) lideMap[p.osCislo].vykon.push(p.vykonProcent);
+                lideMap[p.osCislo].podil.push(p.podilProcent);
+                lideMap[p.osCislo].ks.push(p.ksNaVP);
+                if (p.neshody !== undefined) lideMap[p.osCislo].neshody.push(p.neshody);
+            });
+        });
+
+        const lidePole = Object.keys(lideMap).map(osCislo => {
+            const l = lideMap[osCislo];
+            return {
+                osCislo, jmeno: l.jmeno,
+                pocetMesicu: l.podil.length,
+                prumerVykon: prumerPole(l.vykon),
+                prumerPodil: prumerPole(l.podil),
+                prumerKs: prumerPole(l.ks),
+                prumerNeshody: prumerPole(l.neshody)
+            };
+        }).sort((a, b) => (b.prumerVykon || 0) - (a.prumerVykon || 0));
+
+        const lideHtml = lidePole.map(l => `
+            <tr>
+                <td class="jmeno-bunka">${l.jmeno}</td>
+                <td>${l.osCislo}</td>
+                <td>${l.pocetMesicu}</td>
+                <td class="zvyrazneno">${l.prumerVykon !== null ? formatCislo(l.prumerVykon, 1) + '%' : '—'}</td>
+                <td>${formatCislo(l.prumerPodil, 1)}%</td>
+                <td>${formatCislo(l.prumerKs, 1)}</td>
+                <td>${l.prumerNeshody !== null ? formatCislo(l.prumerNeshody, 1) : '—'}</td>
+            </tr>`).join('');
+
+        obsah.innerHTML = `
+            <div class="prehled-karta">
+                <div class="prehled-nadpis">📊 Celkový přehled — průměry za ${vysledky.length} ${vysledky.length === 1 ? 'měsíc' : (vysledky.length < 5 ? 'měsíce' : 'měsíců')}</div>
+                <div class="souhrn-grid">
+                    <div class="souhrn-karta"><span class="val">${avgCas !== null ? formatCislo(avgCas, 0) : '—'}</span><span class="lbl">Ø odvedeno minut</span></div>
+                    <div class="souhrn-karta"><span class="val">${avgKusy !== null ? formatCislo(avgKusy, 0) : '—'}</span><span class="lbl">Ø vyrobeno kusů</span></div>
+                    <div class="souhrn-karta"><span class="val">${avgKsNaVp !== null ? formatCislo(avgKsNaVp, 1) : '—'}</span><span class="lbl">Ø kusů na VP</span></div>
+                    <div class="souhrn-karta"><span class="val">${avgNeshody !== null ? formatCislo(avgNeshody, 0) : '—'}</span><span class="lbl">Ø počet neshod</span></div>
+                    <div class="souhrn-karta"><span class="val">${avgCena !== null ? formatKc(avgCena) : '—'}</span><span class="lbl">Ø cena neshod</span></div>
+                </div>
+            </div>
+
+            <div class="sekce-nadpis">🗓️ Přehled dle měsíců</div>
+            <div class="prehled-karta">
+                <div class="mesic-prehled-hlavicka">
+                    <div class="mesic-prehled-nazev"></div>
+                    <div class="mesic-prehled-hodnoty">
+                        <span>Minuty</span><span>Kusy</span><span>Ks/VP</span><span>Neshody</span><span>Cena neshod</span>
+                    </div>
+                </div>
+                ${radkyMesicu}
+            </div>
+
+            <div class="sekce-nadpis">📈 Trendy v čase</div>
+            <div class="trend-grid">${grafyHtml}</div>
+
+            <div class="sekce-nadpis">👤 Průměry jednotlivců</div>
+            <div class="prehled-karta">
+                <table class="prehled-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;">Jméno</th>
+                            <th>Osobní číslo</th>
+                            <th>Počet měsíců</th>
+                            <th>Ø Výkon %</th>
+                            <th>Ø Podíl na výrobě %</th>
+                            <th>Ø Počet ks / VP</th>
+                            <th>Ø Počet neshod</th>
+                        </tr>
+                    </thead>
+                    <tbody>${lideHtml}</tbody>
+                </table>
+            </div>`;
+    }
+
+    // --- Trendové grafy (SVG + lineární regrese) ---
+    let globalniTrendData = {};
+
+    function linearniRegrese(hodnoty) {
+        const body = hodnoty.map((v, i) => ({ x: i, y: v })).filter(b => b.y !== null && b.y !== undefined && !isNaN(b.y));
+        if (body.length < 2) return null;
+        const n = body.length;
+        const sumX = body.reduce((a, b) => a + b.x, 0);
+        const sumY = body.reduce((a, b) => a + b.y, 0);
+        const sumXY = body.reduce((a, b) => a + b.x * b.y, 0);
+        const sumXX = body.reduce((a, b) => a + b.x * b.x, 0);
+        const jmenovatel = (n * sumXX - sumX * sumX);
+        const slope = jmenovatel !== 0 ? (n * sumXY - sumX * sumY) / jmenovatel : 0;
+        const intercept = (sumY - slope * sumX) / n;
+        return { slope, intercept, body };
+    }
+
+    function urcitTrend(hodnoty, viceJeLepsi) {
+        const regrese = linearniRegrese(hodnoty);
+        if (!regrese) return { text: 'nedostatek dat', trida: '' };
+        const prumer = regrese.body.reduce((a, b) => a + b.y, 0) / regrese.body.length;
+        const relativniSklon = prumer !== 0 ? (regrese.slope / Math.abs(prumer)) * 100 : 0;
+
+        if (Math.abs(relativniSklon) < 1) return { text: '→ stabilní', trida: 'trend-stabilni' };
+        const stoupa = relativniSklon > 0;
+        const jeDobre = stoupa === viceJeLepsi;
+        return {
+            text: stoupa ? '↑ roste' : '↓ klesá',
+            trida: jeDobre ? 'trend-dobry' : 'trend-spatny'
+        };
+    }
+
+    function svgTrendGraf(hodnoty, sirka, vyska) {
+        const body = hodnoty.map((v, i) => ({ x: i, y: v })).filter(b => b.y !== null && b.y !== undefined && !isNaN(b.y));
+        if (body.length === 0) return `<div class="status-msg">Nedostatek dat pro graf.</div>`;
+
+        const okrajX = 10, okrajY = 14;
+        const maxY = Math.max(...body.map(b => b.y));
+        const minY = Math.min(...body.map(b => b.y), 0);
+        const rozsahY = (maxY - minY) || 1;
+        const maxX = Math.max(hodnoty.length - 1, 1);
+
+        const xScale = i => okrajX + (i / maxX) * (sirka - 2 * okrajX);
+        const yScale = v => (vyska - okrajY) - ((v - minY) / rozsahY) * (vyska - 2 * okrajY);
+
+        const linePoints = body.map(b => `${xScale(b.x)},${yScale(b.y)}`).join(' ');
+        const tecky = body.map(b => `<circle cx="${xScale(b.x)}" cy="${yScale(b.y)}" r="4" fill="var(--accent)" />`).join('');
+
+        const regrese = linearniRegrese(hodnoty);
+        let trendPolyline = '';
+        if (regrese) {
+            const y1 = regrese.slope * 0 + regrese.intercept;
+            const y2 = regrese.slope * maxX + regrese.intercept;
+            trendPolyline = `<polyline points="${xScale(0)},${yScale(y1)} ${xScale(maxX)},${yScale(y2)}" fill="none" stroke="var(--warning)" stroke-width="2" stroke-dasharray="7,5" />`;
+        }
+
+        return `<svg viewBox="0 0 ${sirka} ${vyska}" class="trend-svg">
+            <polyline points="${linePoints}" fill="none" stroke="var(--accent)" stroke-width="3" />
+            ${trendPolyline}
+            ${tecky}
+        </svg>`;
+    }
+
+    function vykresliTrendKartu(id) {
+        const t = globalniTrendData[id];
+        const trend = urcitTrend(t.hodnoty, t.viceJeLepsi);
+        return `
+            <div class="trend-graf-karta" onclick="otevritGrafModal('${id}')">
+                <div class="trend-graf-nadpis">${t.nazev} <span class="trend-sipka ${trend.trida}">${trend.text}</span></div>
+                ${svgTrendGraf(t.hodnoty, 400, 160)}
+                <div class="trend-graf-rozsah"><span>${t.mesiceLabely[0]}</span><span>${t.mesiceLabely[t.mesiceLabely.length - 1]}</span></div>
+            </div>`;
+    }
+
+    function otevritGrafModal(id) {
+        const t = globalniTrendData[id];
+        if (!t) return;
+        const trend = urcitTrend(t.hodnoty, t.viceJeLepsi);
+        document.getElementById('graf-modal-nadpis').innerHTML = `${t.nazev} <span class="trend-sipka ${trend.trida}">${trend.text}</span>`;
+        document.getElementById('graf-modal-telo').innerHTML = svgTrendGraf(t.hodnoty, 1000, 480);
+        document.getElementById('graf-modal-rozsah').innerHTML = `<span>${t.mesiceLabely[0]}</span><span>${t.mesiceLabely[t.mesiceLabely.length - 1]}</span>`;
+        document.getElementById('graf-modal').classList.add('open');
+    }
+
+    function zavritGrafModal() {
+        document.getElementById('graf-modal').classList.remove('open');
     }
 
     function radekTabulky(polozka, jeStaly) {
@@ -735,8 +1036,6 @@
                 </div>
             </div>
 
-            ${vykresliGrafVyroby(data.stali, data.vypomocSouhrn)}
-
             <div class="sekce-nadpis">👷 Stálí zaměstnanci</div>
             <div class="prehled-karta">
                 ${data.stali.length > 0 ? `
@@ -779,11 +1078,24 @@
                     </thead>
                     <tbody>${vypomocHtml}</tbody>
                 </table>` : `<div class="status-msg">Tento měsíc nikdo z výpomoci nepracoval.</div>`}
-            </div>`;
+            </div>
+
+            ${vykresliGrafVyroby(data.stali, data.vypomocSouhrn)}`;
     }
 </script>
 
 <div id="tisk-oblast"></div>
+
+<div class="graf-modal-overlay" id="graf-modal" onclick="zavritGrafModal()">
+    <div class="graf-modal-obsah" onclick="event.stopPropagation()">
+        <div class="graf-modal-hlavicka">
+            <div class="graf-modal-nadpis" id="graf-modal-nadpis"></div>
+            <button class="graf-modal-zavrit" onclick="zavritGrafModal()">✕ Zavřít</button>
+        </div>
+        <div id="graf-modal-telo"></div>
+        <div class="trend-graf-rozsah" id="graf-modal-rozsah"></div>
+    </div>
+</div>
 
 </body>
 </html>
