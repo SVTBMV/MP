@@ -86,6 +86,13 @@
         .trend-sipka.trend-spatny { color: var(--error); background: rgba(239, 68, 68, 0.12); }
         .trend-sipka.trend-stabilni { color: #94a3b8; background: rgba(148, 163, 184, 0.12); }
 
+        .osoba-radek { cursor: pointer; }
+        .osoba-radek:hover { background: rgba(56, 189, 248, 0.06); }
+        .rozbalovaci-sipka { display: inline-block; width: 14px; color: var(--accent); font-weight: bold; }
+        .detail-radek td { padding: 14px 12px; background: rgba(15, 23, 42, 0.4); border-bottom: 2px solid var(--border); }
+        .trend-graf-karta-mala { cursor: default; }
+        .trend-graf-karta-mala:hover { border-color: var(--border); }
+
         .graf-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
         .graf-modal-overlay.open { display: flex; }
         .graf-modal-obsah { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; max-width: 1100px; width: 100%; }
@@ -676,17 +683,20 @@
         const grafyHtml = Object.keys(globalniTrendData).map(id => vykresliTrendKartu(id)).join('');
 
         // --- Průměry jednotlivců napříč měsíci ---
-        const lideMap = {}; // osCislo -> {jmeno, vykon:[], podil:[], ks:[], neshody:[]}
+        const lideMap = {}; // osCislo -> {jmeno, mesice:[], vykon:[], podil:[], ks:[], neshody:[]}
         vysledky.forEach(v => {
             v.data.stali.forEach(p => {
-                if (!lideMap[p.osCislo]) lideMap[p.osCislo] = { jmeno: p.jmeno, vykon: [], podil: [], ks: [], neshody: [] };
+                if (!lideMap[p.osCislo]) lideMap[p.osCislo] = { jmeno: p.jmeno, mesice: [], vykon: [], podil: [], ks: [], neshody: [] };
                 lideMap[p.osCislo].jmeno = p.jmeno;
-                if (p.vykonProcent !== null && p.vykonProcent !== undefined) lideMap[p.osCislo].vykon.push(p.vykonProcent);
+                lideMap[p.osCislo].mesice.push(nazevMesiceCZ(v.klic));
+                lideMap[p.osCislo].vykon.push(p.vykonProcent !== null && p.vykonProcent !== undefined ? p.vykonProcent : null);
                 lideMap[p.osCislo].podil.push(p.podilProcent);
                 lideMap[p.osCislo].ks.push(p.ksNaVP);
-                if (p.neshody !== undefined) lideMap[p.osCislo].neshody.push(p.neshody);
+                lideMap[p.osCislo].neshody.push(p.neshody !== undefined ? p.neshody : null);
             });
         });
+
+        globalniLideData = lideMap;
 
         const lidePole = Object.keys(lideMap).map(osCislo => {
             const l = lideMap[osCislo];
@@ -701,14 +711,17 @@
         }).sort((a, b) => (b.prumerVykon || 0) - (a.prumerVykon || 0));
 
         const lideHtml = lidePole.map(l => `
-            <tr>
-                <td class="jmeno-bunka">${l.jmeno}</td>
+            <tr class="osoba-radek" onclick="prepnoutDetailOsoby('${l.osCislo}')">
+                <td class="jmeno-bunka"><span class="rozbalovaci-sipka" id="sipka-${l.osCislo}">▸</span> ${l.jmeno}</td>
                 <td>${l.osCislo}</td>
                 <td>${l.pocetMesicu}</td>
                 <td class="zvyrazneno">${l.prumerVykon !== null ? formatCislo(l.prumerVykon, 1) + '%' : '—'}</td>
                 <td>${formatCislo(l.prumerPodil, 1)}%</td>
                 <td>${formatCislo(l.prumerKs, 1)}</td>
                 <td>${l.prumerNeshody !== null ? formatCislo(l.prumerNeshody, 1) : '—'}</td>
+            </tr>
+            <tr class="detail-radek" id="detail-${l.osCislo}" style="display:none;">
+                <td colspan="7"><div class="trend-grid" id="detail-grafy-${l.osCislo}"></div></td>
             </tr>`).join('');
 
         obsah.innerHTML = `
@@ -758,6 +771,43 @@
 
     // --- Trendové grafy (SVG + lineární regrese) ---
     let globalniTrendData = {};
+    let globalniLideData = {};
+    const rozbaleneOsoby = {}; // osCislo -> true/false (jestli už byly grafy vykresleny)
+
+    function prepnoutDetailOsoby(osCislo) {
+        const radek = document.getElementById(`detail-${osCislo}`);
+        const sipka = document.getElementById(`sipka-${osCislo}`);
+        if (!radek) return;
+
+        const otevrit = radek.style.display === 'none';
+        radek.style.display = otevrit ? 'table-row' : 'none';
+        if (sipka) sipka.textContent = otevrit ? '▾' : '▸';
+
+        if (otevrit && !rozbaleneOsoby[osCislo]) {
+            const l = globalniLideData[osCislo];
+            if (!l) return;
+
+            const grafy = [
+                { nazev: 'Výkon %', hodnoty: l.vykon, viceJeLepsi: true },
+                { nazev: 'Podíl na výrobě %', hodnoty: l.podil, viceJeLepsi: true },
+                { nazev: 'Počet ks / VP', hodnoty: l.ks, viceJeLepsi: true },
+                { nazev: 'Počet neshod', hodnoty: l.neshody, viceJeLepsi: false }
+            ];
+
+            const html = grafy.map(g => {
+                const trend = urcitTrend(g.hodnoty, g.viceJeLepsi);
+                return `
+                    <div class="trend-graf-karta trend-graf-karta-mala">
+                        <div class="trend-graf-nadpis">${g.nazev} <span class="trend-sipka ${trend.trida}">${trend.text}</span></div>
+                        ${svgTrendGraf(g.hodnoty, 380, 130)}
+                        <div class="trend-graf-rozsah"><span>${l.mesice[0]}</span><span>${l.mesice[l.mesice.length - 1]}</span></div>
+                    </div>`;
+            }).join('');
+
+            document.getElementById(`detail-grafy-${osCislo}`).innerHTML = html;
+            rozbaleneOsoby[osCislo] = true;
+        }
+    }
 
     function linearniRegrese(hodnoty) {
         const body = hodnoty.map((v, i) => ({ x: i, y: v })).filter(b => b.y !== null && b.y !== undefined && !isNaN(b.y));
