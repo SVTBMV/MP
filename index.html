@@ -59,6 +59,7 @@
         .vypomoc-souhrn-karta { border-color: rgba(56, 189, 248, 0.35); margin-bottom: 12px; }
 
         .prehled-hlavicka-s-tlacitkem { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+        .tisk-btn-skupina { display: flex; gap: 10px; flex-wrap: wrap; }
         .tisk-btn { background: var(--card); border: 2px solid var(--accent); color: var(--accent); font-weight: bold; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; }
         .tisk-btn:hover { background: var(--accent); color: #000; }
 
@@ -161,6 +162,8 @@
     const HESLO = '1592648';
 
     const DATA_DOC_ID = '1VmwnMcHmvrVSWhj5UimmSG-ZsKkdPcQEMKl22Khqt2E';
+    // Sem vlož URL nasazeného Google Apps Script Web App pro CACHE (viz cache_apps_script.gs) - bude končit na /exec
+    const CACHE_API_URL = 'https://script.google.com/macros/s/AKfycbwD3QqccABbC8Nlu06z3V6VnelrvhpU9u1PY3p17mRdLGG1zrxcBINQnQ7ccoQFt2Y8QQ/exec';
     const REZIE_DOC_ID = '1fa0RXA2EEDvlGD-iTCEuXU5LKiMbWJM4EVJOTltWwa4';
     const RUCNI_DOC_ID = '11ncVFAnCGzBGCmzj48Aq8w_rPq8EVprHpBT3M5NO3d8';
 
@@ -403,6 +406,8 @@
         let seznam = nacistSeznamMesicu().filter(m => m !== klic);
         ulozitSeznamMesicu(seznam);
         celkemNacteno = false;
+        if (mesicniCache) delete mesicniCache[klic];
+        smazatZCache(klic);
         vykresliVyberMesicu();
         const dalsi = serazenoSestupne(seznam);
         if (dalsi.length > 0) vybratMesic(dalsi[0]);
@@ -599,12 +604,67 @@
         };
     }
 
-    async function nacistMesic(klic) {
+    // --- Cache (Google Sheets) - jednou spočítaný měsíc se znovu nepřepočítává ---
+    let mesicniCache = null; // lazy načtená mapa: klic -> data
+
+    async function nacistCache() {
+        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return {};
+        try {
+            const response = await fetch(CACHE_API_URL);
+            const pole = await response.json();
+            const mapa = {};
+            pole.forEach(z => { if (z.data) mapa[z.klic] = z.data; });
+            return mapa;
+        } catch (e) {
+            return {};
+        }
+    }
+
+    async function ulozitDoCache(klic, data) {
+        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return;
+        try {
+            await fetch(CACHE_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'save', klic, data })
+            });
+        } catch (e) {
+            // zápis do cache selhal - nevadí, příště se jen znovu přepočítá
+        }
+    }
+
+    async function smazatZCache(klic) {
+        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return;
+        try {
+            await fetch(CACHE_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'delete', klic })
+            });
+        } catch (e) { /* ignore */ }
+    }
+
+    async function ziskejCacheMapu() {
+        if (mesicniCache === null) mesicniCache = await nacistCache();
+        return mesicniCache;
+    }
+
+    // Vrátí data měsíce - z cache, pokud existují a nevynucujeme aktualizaci, jinak čerstvě spočítá a uloží do cache
+    async function ziskatDataMesice(klic, vynutitAktualizaci) {
+        const cacheMapa = await ziskejCacheMapu();
+        if (!vynutitAktualizaci && cacheMapa[klic]) {
+            return cacheMapa[klic];
+        }
+        const data = await zpracovatMesic(klic);
+        cacheMapa[klic] = data;
+        ulozitDoCache(klic, data); // na pozadí, nečekáme na dokončení
+        return data;
+    }
+
+    async function nacistMesic(klic, vynutitAktualizaci) {
         const reportApp = document.getElementById('report-app');
-        reportApp.innerHTML = `<div class="status-msg">Načítám data za ${nazevMesiceCZ(klic)}...</div>`;
+        reportApp.innerHTML = `<div class="status-msg">${vynutitAktualizaci ? 'Aktualizuji' : 'Načítám'} data za ${nazevMesiceCZ(klic)}...</div>`;
 
         try {
-            const data = await zpracovatMesic(klic);
+            const data = await ziskatDataMesice(klic, vynutitAktualizaci);
             vykresliReport(klic, data);
         } catch (e) {
             reportApp.innerHTML = `<div class="msg red" style="display:block">Chyba při zpracování dat za ${nazevMesiceCZ(klic)}: ${e.message}</div>`;
@@ -613,9 +673,9 @@
 
     // ============ CELKOVÝ PŘEHLED (všechny měsíce dohromady) ============
 
-    async function nacistCelkovyPrehled() {
+    async function nacistCelkovyPrehled(vynutitAktualizaci) {
         const obsah = document.getElementById('celkem-obsah');
-        obsah.innerHTML = `<div class="status-msg">Načítám všechny měsíce, může to chvíli trvat...</div>`;
+        obsah.innerHTML = `<div class="status-msg">${vynutitAktualizaci ? 'Aktualizuji všechny měsíce, může to chvíli trvat...' : 'Načítám všechny měsíce...'}</div>`;
 
         const seznamVzestupne = serazenoVzestupne(nacistSeznamMesicu());
         if (seznamVzestupne.length === 0) {
@@ -626,7 +686,7 @@
         const vysledky = [];
         for (const klic of seznamVzestupne) {
             try {
-                const data = await zpracovatMesic(klic);
+                const data = await ziskatDataMesice(klic, vynutitAktualizaci);
                 vysledky.push({ klic, data });
             } catch (e) {
                 // měsíc, který se nepodaří načíst, v celkovém přehledu jen přeskočíme
@@ -726,7 +786,10 @@
 
         obsah.innerHTML = `
             <div class="prehled-karta">
-                <div class="prehled-nadpis">📊 Celkový přehled — průměry za ${vysledky.length} ${vysledky.length === 1 ? 'měsíc' : (vysledky.length < 5 ? 'měsíce' : 'měsíců')}</div>
+                <div class="prehled-hlavicka-s-tlacitkem">
+                    <div class="prehled-nadpis">📊 Celkový přehled — průměry za ${vysledky.length} ${vysledky.length === 1 ? 'měsíc' : (vysledky.length < 5 ? 'měsíce' : 'měsíců')}</div>
+                    <button class="tisk-btn" onclick="nacistCelkovyPrehled(true)">🔄 Aktualizovat vše</button>
+                </div>
                 <div class="souhrn-grid">
                     <div class="souhrn-karta"><span class="val">${avgCas !== null ? formatCislo(avgCas, 0) : '—'}</span><span class="lbl">Ø odvedeno minut</span></div>
                     <div class="souhrn-karta"><span class="val">${avgKusy !== null ? formatCislo(avgKusy, 0) : '—'}</span><span class="lbl">Ø vyrobeno kusů</span></div>
@@ -1075,7 +1138,10 @@
                         <div class="prehled-nadpis">📋 ${nazevMesiceCZ(klic)}</div>
                         <div class="prehled-podnadpis">Souhrnný přehled výkonů, neshod a docházky</div>
                     </div>
-                    <button class="tisk-btn" onclick="pripravitTisk()">🖨 Tisk pro nástěnku</button>
+                    <div class="tisk-btn-skupina">
+                        <button class="tisk-btn" onclick="nacistMesic('${klic}', true)">🔄 Aktualizovat</button>
+                        <button class="tisk-btn" onclick="pripravitTisk()">🖨 Tisk pro nástěnku</button>
+                    </div>
                 </div>
                 <div class="souhrn-grid">
                     <div class="souhrn-karta"><span class="val">${formatCislo(data.celkemCasVsech, 0)}</span><span class="lbl">Celkem odvedeno minut</span></div>
