@@ -425,7 +425,7 @@
         `).join('');
     }
 
-    function zahajitNacitaniMesicu() {
+    async function zahajitNacitaniMesicu() {
         const app = document.getElementById('app');
         app.innerHTML = `
             <div class="hlavni-menu">
@@ -438,10 +438,12 @@
                     <button id="pridat-mesic-tlacitko" onclick="pridatMesic()">+ Přidat měsíc</button>
                 </div>
                 <div class="login-error" id="novy-mesic-error"></div>
-                <div class="mesice-grid" id="mesice-grid"></div>
+                <div class="mesice-grid" id="mesice-grid"><div class="status-msg">Synchronizuji seznam měsíců...</div></div>
                 <div id="report-app"></div>
             </div>
             <div id="celkem-obsah" style="display:none;"></div>`;
+
+        await synchronizovatSeznamMesicuSCache();
 
         vykresliVyberMesicu();
 
@@ -645,6 +647,22 @@
     async function ziskejCacheMapu() {
         if (mesicniCache === null) mesicniCache = await nacistCache();
         return mesicniCache;
+    }
+
+    // Seznam měsíců sdílet napříč zařízeními - sloučí lokální seznam s tím, co už je v cache
+    // (každý spočítaný měsíc tam má svůj záznam, takže cache je zároveň sdíleným zdrojem seznamu)
+    async function synchronizovatSeznamMesicuSCache() {
+        try {
+            const cacheMapa = await ziskejCacheMapu();
+            const zCache = Object.keys(cacheMapa);
+            if (zCache.length === 0) return;
+
+            const mistni = nacistSeznamMesicu();
+            const sjednoceno = [...new Set([...mistni, ...zCache])].filter(jePlatnyKlicMesice);
+            ulozitSeznamMesicu(sjednoceno);
+        } catch (e) {
+            // synchronizace selhala - pokračujeme jen s lokálním seznamem
+        }
     }
 
     // Vrátí data měsíce - z cache, pokud existují a nevynucujeme aktualizaci, jinak čerstvě spočítá a uloží do cache
