@@ -105,9 +105,10 @@
         /* --- Tiskový výstup (skrytý, zobrazí se jen při tisku) --- */
         #tisk-oblast { display: none; }
         @media print {
+            html, body { background: #fff !important; }
             .container { display: none !important; }
             #tisk-oblast { display: block; }
-            .tisk-stranka { page-break-after: always; background: #fff; color: #111; padding: 8mm; box-sizing: border-box; font-family: Calibri, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .tisk-stranka { page-break-after: always; background: #fff; color: #111; padding: 8mm; box-sizing: border-box; min-height: 100vh; font-family: Calibri, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .tisk-stranka:last-child { page-break-after: auto; }
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
@@ -127,7 +128,7 @@
         .tisk-souhrn td.val-tisk { font-weight: 700; text-align: right; }
         .tisk-mesic-velky { font-size: 2.2rem; font-weight: 500; color: #111; white-space: nowrap; }
         .tisk-kolac-obal { position: relative; width: min(720px, 92%); aspect-ratio: 1 / 1; margin: 10px auto 30px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .tisk-kolac { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 1px #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .tisk-kolac-svg { width: 100%; height: 100%; display: block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .tisk-stitek { position: absolute; transform: translate(-50%, -50%); font-size: 1.2rem; font-weight: 800; color: #111; background: rgba(255,255,255,0.92); padding: 4px 12px; border-radius: 8px; border: 2px solid #333; white-space: nowrap; }
 
         .kolac-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; }
@@ -1112,18 +1113,34 @@
         if (data.vypomocSouhrn) vsichniProGraf.push({ osCislo: 'Výpomoc', podilProcent: data.vypomocSouhrn.podilProcent });
         const barvy = vsichniProGraf.map((_, i) => `hsl(${Math.round((i * 360) / vsichniProGraf.length)}, 65%, 50%)`);
 
-        let kumulativni = 0;
-        const segmenty = [];
+        // SVG místo CSS gradientu - ve Firefoxu i Chrome se při tisku/PDF vykresluje spolehlivě
+        const rozmerSvg = 600;
+        const stredSvg = rozmerSvg / 2;
+        const polomerSvg = rozmerSvg / 2 - 4;
+        let uhelStupne = -90; // začít nahoře (12 hodin)
+        const vysece = [];
         const stitky = [];
+
         vsichniProGraf.forEach((p, i) => {
-            const start = kumulativni;
-            kumulativni += p.podilProcent;
-            segmenty.push(`${barvy[i]} ${start}% ${kumulativni}%`);
-            const stred = (start + kumulativni) / 2;
-            const uhelRad = (stred * 3.6 - 90) * (Math.PI / 180);
-            const x = 50 + 34 * Math.cos(uhelRad);
-            const y = 50 + 34 * Math.sin(uhelRad);
-            stitky.push(`<div class="tisk-stitek" style="left:${x}%; top:${y}%;">${p.osCislo}</div>`);
+            const uhelVysece = (p.podilProcent / 100) * 360;
+            const uhelStart = uhelStupne;
+            const uhelKonec = uhelStupne + uhelVysece;
+            const startRad = uhelStart * Math.PI / 180;
+            const konecRad = uhelKonec * Math.PI / 180;
+            const x1 = stredSvg + polomerSvg * Math.cos(startRad);
+            const y1 = stredSvg + polomerSvg * Math.sin(startRad);
+            const x2 = stredSvg + polomerSvg * Math.cos(konecRad);
+            const y2 = stredSvg + polomerSvg * Math.sin(konecRad);
+            const velkyOblouk = uhelVysece > 180 ? 1 : 0;
+
+            vysece.push(`<path d="M${stredSvg},${stredSvg} L${x1.toFixed(2)},${y1.toFixed(2)} A${polomerSvg},${polomerSvg} 0 ${velkyOblouk},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${barvy[i]}" stroke="#fff" stroke-width="2" />`);
+
+            const stredUhel = ((uhelStart + uhelKonec) / 2) * Math.PI / 180;
+            const lx = 50 + 34 * Math.cos(stredUhel);
+            const ly = 50 + 34 * Math.sin(stredUhel);
+            stitky.push(`<div class="tisk-stitek" style="left:${lx}%; top:${ly}%;">${p.osCislo}</div>`);
+
+            uhelStupne = uhelKonec;
         });
 
         const stranka2 = `
@@ -1132,7 +1149,7 @@
                     <tr><td>Podíl na výrobě</td><td class="tisk-nadpis-prava">${nazevMesiceCZ(klic)}</td></tr>
                 </table>
                 <div class="tisk-kolac-obal">
-                    <div class="tisk-kolac" style="background: conic-gradient(${segmenty.join(', ')});"></div>
+                    <svg viewBox="0 0 ${rozmerSvg} ${rozmerSvg}" class="tisk-kolac-svg">${vysece.join('')}</svg>
                     ${stitky.join('')}
                 </div>
             </div>`;
