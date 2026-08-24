@@ -1138,7 +1138,14 @@
             </div>`;
 
         document.getElementById('tisk-oblast').innerHTML = stranka1 + stranka2;
-        window.print();
+
+        // Malé zpoždění, ať prohlížeč (hlavně Chrome) stihne opravdu vykreslit
+        // barevný graf a pozice popisků, než se spustí tiskový dialog.
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setTimeout(() => window.print(), 150);
+            });
+        });
     }
 
     function vykresliReport(klic, data) {
