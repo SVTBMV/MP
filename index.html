@@ -433,6 +433,7 @@
             errorEl.textContent = '';
             seznam.push(klic);
             ulozitSeznamMesicu(seznam);
+            await posliNaServer({ action: 'addMonth', klic });
             celkemNacteno = false;
             input.value = '';
             vykresliVyberMesicu();
@@ -482,6 +483,7 @@
                     <button id="pridat-mesic-tlacitko" onclick="pridatMesic()">+ Přidat měsíc</button>
                 </div>
                 <div class="login-error" id="novy-mesic-error"></div>
+                <div id="sync-stav" style="font-size:0.8rem; color:#94a3b8; margin-bottom:12px;"></div>
                 <div class="mesice-grid" id="mesice-grid"><div class="status-msg">Synchronizuji seznam měsíců...</div></div>
                 <div id="report-app"></div>
             </div>
@@ -517,6 +519,10 @@
 
     // --- Načtení a zpracování dat konkrétního měsíce ---
     async function zpracovatMesic(klic) {
+        // všechny tři tabulky se stahují souběžně (rychlejší než jedna po druhé)
+        const rezieP = nacistListGviz(REZIE_DOC_ID, klic, 'Režie');
+        const ruceniP = nacistListGviz(RUCNI_DOC_ID, klic, 'Ručně doplňovaná data');
+        rezieP.catch(() => {}); ruceniP.catch(() => {});
         const dataList = await nacistListGviz(DATA_DOC_ID, klic, 'Data');
 
         const dIdx = detekovatSloupceData(dataList.headerRow);
@@ -554,7 +560,7 @@
         // --- Zpracování tabulky Režie (jen lidé, kteří jsou v tabulce Data) ---
         const rezieMap = {}; // osCislo -> minuty
         try {
-            const rezieList = await nacistListGviz(REZIE_DOC_ID, klic, 'Režie');
+            const rezieList = await rezieP;
             const rIdx = detekovatSloupceRezie(rezieList.headerRow);
             if (rIdx.idxCas !== -1 && rIdx.idxOsCislo !== -1) {
                 rezieList.dataRows.forEach(cols => {
@@ -573,7 +579,7 @@
         let pocetNeshodCelkem = null;
         let cenaNeshodCelkem = null;
         try {
-            const ruceniList = await nacistListGviz(RUCNI_DOC_ID, klic, 'Ručně doplňovaná data');
+            const ruceniList = await ruceniP;
             ruceniList.dataRows.forEach(cols => {
                 const jmeno = ocistitBunku(cols[0]);
                 if (!jmeno) return;
@@ -653,39 +659,71 @@
     // --- Cache (Google Sheets) - jednou spočítaný měsíc se znovu nepřepočítává ---
     let mesicniCache = null; // lazy načtená mapa: klic -> data
 
+    let serverMesice = null; // seznam měsíců ze sdíleného úložiště (null = nedostupné)
+    let serverDostupny = false;
+
+    function nastavSyncStav(text, stav) {
+        const el = document.getElementById('sync-stav');
+        if (!el) return;
+        el.textContent = text;
+        el.style.color = stav === 'ok' ? 'var(--success)' : stav === 'chyba' ? 'var(--error)' : '#94a3b8';
+    }
+
+    function cacheNastavena() {
+        return CACHE_API_URL && !CACHE_API_URL.includes('SEM_VLOZ');
+    }
+
     async function nacistCache() {
-        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return {};
+        if (!cacheNastavena()) return {};
         try {
-            const response = await fetch(CACHE_API_URL);
-            const pole = await response.json();
+            const response = await fetch(CACHE_API_URL, { cache: 'no-store' });
+            const odpoved = await response.json();
             const mapa = {};
-            pole.forEach(z => { if (z.data) mapa[z.klic] = z.data; });
+            if (Array.isArray(odpoved)) {
+                // stará verze skriptu (bez seznamu měsíců)
+                odpoved.forEach(z => { if (z.data) mapa[z.klic] = z.data; });
+                serverMesice = null;
+                serverDostupny = false;
+                nastavSyncStav('⚠ Sdílené úložiště používá starou verzi skriptu – nasaďte novou verzi cache_apps_script.gs', 'chyba');
+            } else if (odpoved && odpoved.ok) {
+                (odpoved.data || []).forEach(z => { if (z.data) mapa[z.klic] = z.data; });
+                serverMesice = odpoved.mesice || [];
+                serverDostupny = true;
+                nastavSyncStav('☁ Sdílené úložiště připojeno', 'ok');
+            } else {
+                throw new Error((odpoved && odpoved.error) || 'neznámá chyba');
+            }
             return mapa;
         } catch (e) {
+            serverDostupny = false;
+            nastavSyncStav('⚠ Sdílené úložiště nedostupné (' + e.message + ') – data se ukládají jen v tomto prohlížeči', 'chyba');
             return {};
         }
     }
 
-    async function ulozitDoCache(klic, data) {
-        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return;
+    // Pošle akci na server a vrátí true/false; při chybě ukáže důvod v indikátoru
+    async function posliNaServer(telo) {
+        if (!cacheNastavena()) return false;
         try {
-            await fetch(CACHE_API_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'save', klic, data })
-            });
+            const response = await fetch(CACHE_API_URL, { method: 'POST', body: JSON.stringify(telo) });
+            const odpoved = await response.json();
+            if (!odpoved || odpoved.ok !== true) throw new Error((odpoved && odpoved.error) || 'server vrátil chybu');
+            return true;
         } catch (e) {
-            // zápis do cache selhal - nevadí, příště se jen znovu přepočítá
+            nastavSyncStav('⚠ Uložení do sdíleného úložiště selhalo: ' + e.message, 'chyba');
+            return false;
         }
     }
 
+    async function ulozitDoCache(klic, data) {
+        nastavSyncStav('Ukládám do sdíleného úložiště...', '');
+        const ok = await posliNaServer({ action: 'save', klic, data });
+        if (ok) nastavSyncStav('☁ Uloženo do sdíleného úložiště – ' + nazevMesiceCZ(klic) + ' uvidíte i na jiných zařízeních', 'ok');
+        return ok;
+    }
+
     async function smazatZCache(klic) {
-        if (!CACHE_API_URL || CACHE_API_URL.includes('SEM_VLOZ')) return;
-        try {
-            await fetch(CACHE_API_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'delete', klic })
-            });
-        } catch (e) { /* ignore */ }
+        return posliNaServer({ action: 'delete', klic });
     }
 
     async function ziskejCacheMapu() {
@@ -693,17 +731,28 @@
         return mesicniCache;
     }
 
-    // Seznam měsíců sdílet napříč zařízeními - sloučí lokální seznam s tím, co už je v cache
-    // (každý spočítaný měsíc tam má svůj záznam, takže cache je zároveň sdíleným zdrojem seznamu)
+    // Server je zdroj pravdy pro seznam měsíců. Při prvním použití nové verze se měsíce,
+    // které jsou jen v tomto prohlížeči, jednorázově nahrají na server.
+    const MIGRACE_KEY = 'mesicni_prehled_migrace_v2';
     async function synchronizovatSeznamMesicuSCache() {
         try {
-            const cacheMapa = await ziskejCacheMapu();
-            const zCache = Object.keys(cacheMapa);
-            if (zCache.length === 0) return;
+            await ziskejCacheMapu();
+            if (!serverDostupny) return; // pokračujeme s lokálním seznamem
 
             const mistni = nacistSeznamMesicu();
-            const sjednoceno = [...new Set([...mistni, ...zCache])].filter(jePlatnyKlicMesice);
-            ulozitSeznamMesicu(sjednoceno);
+            let migrovano = false;
+            try { migrovano = localStorage.getItem(MIGRACE_KEY) === '1'; } catch (e) { /* ignore */ }
+
+            if (!migrovano) {
+                const naServeru = new Set(serverMesice);
+                for (const klic of mistni) {
+                    if (jePlatnyKlicMesice(klic) && !naServeru.has(klic)) {
+                        if (await posliNaServer({ action: 'addMonth', klic })) serverMesice.push(klic);
+                    }
+                }
+                try { localStorage.setItem(MIGRACE_KEY, '1'); } catch (e) { /* ignore */ }
+            }
+            ulozitSeznamMesicu([...new Set(serverMesice)].filter(jePlatnyKlicMesice));
         } catch (e) {
             // synchronizace selhala - pokračujeme jen s lokálním seznamem
         }
@@ -717,7 +766,7 @@
         }
         const data = await zpracovatMesic(klic);
         cacheMapa[klic] = data;
-        ulozitDoCache(klic, data); // na pozadí, nečekáme na dokončení
+        await ulozitDoCache(klic, data);
         return data;
     }
 
@@ -745,15 +794,15 @@
             return;
         }
 
-        const vysledky = [];
-        for (const klic of seznamVzestupne) {
+        await ziskejCacheMapu();
+        const vysledkyRaw = await Promise.all(seznamVzestupne.map(async klic => {
             try {
-                const data = await ziskatDataMesice(klic, vynutitAktualizaci);
-                vysledky.push({ klic, data });
+                return { klic, data: await ziskatDataMesice(klic, vynutitAktualizaci) };
             } catch (e) {
-                // měsíc, který se nepodaří načíst, v celkovém přehledu jen přeskočíme
+                return null; // měsíc, který se nepodaří načíst, v celkovém přehledu jen přeskočíme
             }
-        }
+        }));
+        const vysledky = vysledkyRaw.filter(Boolean);
 
         if (vysledky.length === 0) {
             obsah.innerHTML = `<div class="msg red" style="display:block">Nepodařilo se načíst žádný měsíc.</div>`;
